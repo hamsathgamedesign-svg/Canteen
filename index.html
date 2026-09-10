@@ -134,6 +134,7 @@
                 </div>
                 <div class="flex gap-2">
                     <a href="payments.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Monthly Payments</a>
+                    <a href="reports.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Reports</a>
                     <button onclick="adminLogout()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-200 transition">Log Out</button>
                 </div>
             </div>
@@ -271,6 +272,8 @@
         let scanLocked = false;
         let currentView = 'scanner';
 
+        function addScanLog(entry) { scanLogs.unshift({ ...entry, occurredAt: new Date().toISOString() }); }
+
         const firebaseConfig = {
             apiKey: "AIzaSyD9qr8eJ1jzU-mC49-UPuYf8fO1LTV6QVY",
             authDomain: "canteen-28c1e.firebaseapp.com",
@@ -386,6 +389,7 @@
         }
 
         function runAutomaticResets() {
+            removeExpiredClosedAccounts();
             const today = getDayKey();
             const thisMonth = getMonthKey();
             let dataChanged = false;
@@ -424,6 +428,19 @@
             nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
             return getMonthKey(nextMonth);
         }
+
+        function removeExpiredClosedAccounts() {
+            const deletionDelay = 5 * 60 * 1000;
+            const now = Date.now();
+            const remainingStudents = students.filter(student => student.enrolled !== false || !student.closedAt || now - student.closedAt < deletionDelay);
+            const remainingTeachers = teachers.filter(teacher => teacher.enrolled !== false || !teacher.closedAt || now - teacher.closedAt < deletionDelay);
+            if (remainingStudents.length === students.length && remainingTeachers.length === teachers.length) return;
+            students = remainingStudents;
+            teachers = remainingTeachers;
+            saveAppData();
+        }
+
+        function scheduleClosedAccountCleanup() { setInterval(removeExpiredClosedAccounts, 60 * 1000); }
 
         function formatMealMonth(monthKey) {
             const [year, month] = monthKey.split('-').map(Number);
@@ -578,7 +595,7 @@
                 if (isFeePaused(person)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${person.name}'s canteen access is paused until their meal fee is recorded as paid.`;
-                    scanLogs.unshift({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, status: 'Rejected (Account Paused)' });
+                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, status: 'Rejected (Account Paused)' });
                     saveAppData();
                     return;
                 }
@@ -586,7 +603,7 @@
                 if (!getPaidPayment(person.id, currentMealMonth)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `💳 PAYMENT REQUIRED: ${person.name} has not paid for <b>${formatMealMonth(currentMealMonth)}</b> meals.`;
-                    scanLogs.unshift({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, status: 'Rejected (Payment Required)' });
+                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, status: 'Rejected (Payment Required)' });
                     saveAppData();
                     return;
                 }
@@ -596,14 +613,14 @@
                 if (!isTeacherEnrolled(teacher)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-gray-200 text-gray-700 border border-gray-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `⛔ ACCOUNT CLOSED: ${teacher.name}'s canteen account is no longer active.`;
-                    scanLogs.unshift({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, status: 'Rejected (Account Closed)' });
+                    addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, status: 'Rejected (Account Closed)' });
                     saveAppData();
                     return;
                 }
                 if (isTeacherPaused(teacher)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${teacher.name}'s canteen access is paused.`;
-                    scanLogs.unshift({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, status: 'Rejected (Account Paused)' });
+                    addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, status: 'Rejected (Account Paused)' });
                     saveAppData();
                     return;
                 }
@@ -616,14 +633,14 @@
             if (claimed) {
                 feedbackEl.className = "mt-4 p-4 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 font-bold block text-sm";
                 feedbackEl.innerHTML = `❌ REJECTED: ${person.name} (${classGroup}) already claimed <b>${category}</b> today!`;
-                scanLogs.unshift({ time: timeStr, name: person.name, classGroup, category, status: 'Rejected (Duplicate)' });
+                addScanLog({ time: timeStr, name: person.name, classGroup, category, status: 'Rejected (Duplicate)' });
             } else {
                 if (category === 'Breakfast') dailyTracker[person.id].breakfast = true;
                 if (category === 'Lunch') dailyTracker[person.id].lunch = true;
 
                 feedbackEl.className = "mt-4 p-4 rounded-xl bg-[#d8e2dc] text-[#2d4a3e] border border-[#b2c4bc] font-bold block text-sm";
                 feedbackEl.innerHTML = `✅ SUCCESS: ${category} recorded for <b>${person.name}</b> [${classGroup}]`;
-                scanLogs.unshift({ time: timeStr, name: person.name, classGroup, category, status: 'Success' });
+                addScanLog({ time: timeStr, name: person.name, classGroup, category, status: 'Success' });
             }
             saveAppData();
         }
@@ -756,6 +773,7 @@
             if (!student || !isStudentEnrolled(student)) return;
             if (!confirm(`Close ${student.name}'s canteen account? Their payment history will be preserved.`)) return;
             student.enrolled = false;
+            student.closedAt = Date.now();
             saveAppData();
         }
 
@@ -780,6 +798,7 @@
             if (!teacher || !isTeacherEnrolled(teacher)) return;
             if (!confirm(`Close ${teacher.name}'s canteen account? Their scan history will be preserved.`)) return;
             teacher.enrolled = false;
+            teacher.closedAt = Date.now();
             saveAppData();
         }
 
@@ -799,6 +818,7 @@
         loadCloudData();
         runAutomaticResets();
         scheduleAutomaticResets();
+        scheduleClosedAccountCleanup();
     </script>
 </body>
 </html>
