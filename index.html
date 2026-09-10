@@ -689,7 +689,7 @@
                         <td class="p-3">${s.grade}</td>
                         <td class="p-3">${s.division}</td>
                         <td class="p-3 font-mono text-xs text-gray-500">${s.id}</td>
-                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('student', '${s.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isStudentEnrolled(s) ? `<button onclick="closeStudentAccount('${s.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : '<span class="text-xs font-semibold text-gray-500">Closed</span>'}</td>
+                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('student', '${s.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isStudentEnrolled(s) ? `<button onclick="closeStudentAccount('${s.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<span class="text-xs font-semibold text-gray-500">Closed</span> <button onclick="deleteStudentPermanently('${s.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td>
                     </tr>
                 `).join('');
             }
@@ -702,7 +702,7 @@
                         <td class="p-3"><div id="directory-teacher-qr-${t.id}"></div></td>
                         <td class="p-3 font-semibold">${t.name}</td>
                         <td class="p-3 font-mono text-xs text-gray-500">${t.id}</td>
-                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('teacher', '${t.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isTeacherEnrolled(t) ? `${isTeacherPaused(t) ? `<button onclick="unpauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeTeacherAccount('${t.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : '<span class="text-xs font-semibold text-gray-500">Closed</span>'}</td>
+                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('teacher', '${t.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isTeacherEnrolled(t) ? `${isTeacherPaused(t) ? `<button onclick="unpauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeTeacherAccount('${t.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<span class="text-xs font-semibold text-gray-500">Closed</span> <button onclick="deleteTeacherPermanently('${t.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td>
                     </tr>
                 `).join('');
             }
@@ -777,6 +777,14 @@
             saveAppData();
         }
 
+        function deleteStudentPermanently(id) {
+            const student = students.find(s => s.id === id);
+            if (!student || isStudentEnrolled(student)) return;
+            if (!confirm(`Permanently delete ${student.name}'s account? This cannot be undone.`)) return;
+            students = students.filter(s => s.id !== id);
+            saveAppData();
+        }
+
         function pauseTeacherAccount(id) {
             const teacher = teachers.find(t => t.id === id);
             if (!teacher || !isTeacherEnrolled(teacher) || isTeacherPaused(teacher)) return;
@@ -799,6 +807,14 @@
             if (!confirm(`Close ${teacher.name}'s canteen account? Their scan history will be preserved.`)) return;
             teacher.enrolled = false;
             teacher.closedAt = Date.now();
+            saveAppData();
+        }
+
+        function deleteTeacherPermanently(id) {
+            const teacher = teachers.find(t => t.id === id);
+            if (!teacher || isTeacherEnrolled(teacher)) return;
+            if (!confirm(`Permanently delete ${teacher.name}'s account? This cannot be undone.`)) return;
+            teachers = teachers.filter(t => t.id !== id);
             saveAppData();
         }
 
