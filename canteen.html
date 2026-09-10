@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>McLEOD's English School Canteen Monitor</title>
+    <link rel="icon" type="image/png" href="Not needed/McLeod's English School LOGO.png">
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
+    <style>
+        body { background-color: #f4f6f0; color: #2d3732; }
+        .bg-matte-green { background-color: #2d4a3e; }
+        .text-matte-green { color: #2d4a3e; }
+        .border-matte-green { border-color: #2d4a3e; }
+        .btn-matte { background-color: #2d4a3e; color: #f4f6f0; }
+        .btn-matte:hover { background-color: #243c32; }
+        #dashboard-nav-button { background-color: #3c5f51; color: #f4f6f0; }
+        #dashboard-nav-button.admin-login-subtle { background-color: #2d4a3e; color: #476f5f; opacity: 0.15; }
+        .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
+
+        .print-card {
+            background: #ffffff;
+            border: 4px solid #1e6b1a;
+            border-radius: 2px;
+            color: #1f2937;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-height: 350px;
+            padding: 18px;
+        }
+        .badge-person-row { display: flex; align-items: center; gap: 18px; }
+        .badge-qr { flex: 0 0 112px; min-height: 112px; display: flex; align-items: center; justify-content: center; }
+        .badge-person-details { font-size: 14px; line-height: 1.45; }
+        .badge-person-details strong { color: #2d4a3e; }
+        .badge-brand-row { display: flex; align-items: center; gap: 18px; margin-top: 4px; }
+        .badge-logo { width: 76px; height: 76px; object-fit: contain; }
+        .badge-title { color: #1f2937; font-size: 23px; font-weight: 700; }
+        .badge-footer { font-size: 14px; line-height: 1.35; margin-top: auto; padding-left: 4px; }
+        .badge-id { color: #4b5563; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; text-align: right; }
+        
+        @media print {
+            body * { visibility: hidden; }
+            #printable-area, #printable-area * { visibility: visible; }
+            #printable-area { position: absolute; left: 0; top: 0; width: 100%; display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; padding: 20px; }
+            .print-card { box-sizing: border-box; min-height: 54mm; padding: 4mm; page-break-inside: avoid; width: 85mm; }
+            .badge-person-row { gap: 4mm; }
+            .badge-qr { flex-basis: 28mm; min-height: 28mm; }
+            .badge-qr img { width: 28mm !important; height: 28mm !important; }
+            .badge-person-details { font-size: 10pt; }
+            .badge-brand-row { gap: 5mm; }
+            .badge-logo { width: 18mm; height: 18mm; }
+            .badge-title { font-size: 16pt; }
+            .badge-footer { font-size: 10pt; }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Header Navigation -->
+    <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+            <span role="img" aria-label="McLEOD's English School logo" class="header-school-logo"></span>
+            <h1 class="text-xl font-bold tracking-wide">McLEOD's English School Canteen Monitor</h1>
+        </div>
+        <div id="navigation-controls" class="space-x-2">
+            <button id="scanner-nav-button" onclick="switchView('scanner')" class="hidden px-4 py-2 rounded bg-[#3c5f51] hover:bg-[#476f5f] transition font-medium text-sm">Scanning Mode</button>
+            <button id="dashboard-nav-button" onclick="checkAdminAccess()" title="Admin Login" aria-label="Admin Login" class="px-4 py-2 rounded transition font-medium text-sm admin-login-subtle">Admin Login</button>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-5xl w-full mx-auto p-4 sm:p-6">
+
+        <!---------------- VIEW 1: CANTEEN CAMERA & MANUAL SCANNER ---------------->
+        <div id="view-scanner" class="space-y-6">
+            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm max-w-xl mx-auto">
+                <h2 class="text-xl font-bold text-matte-green mb-4">Canteen Terminal Scanner</h2>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold mb-1">Select Meal Category:</label>
+                    <select id="active-meal-category" class="w-full border border-gray-300 rounded-lg p-2.5 bg-[#f4f6f0] font-medium outline-none">
+                        <option value="Breakfast">Breakfast</option>
+                        <option value="Lunch">Lunch</option>
+                    </select>
+                </div>
+
+                <!-- Live Camera Feed Container -->
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold mb-1">Scan QR via Camera:</label>
+                    <div id="reader" class="w-full rounded-lg overflow-hidden border border-gray-300 bg-black"></div>
+                </div>
+
+                <!-- Fallback Manual ID Input -->
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Camera not working? Enter ID manually:</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="manual-id-input" placeholder="e.g. ECO-584920" class="flex-grow border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
+                        <button onclick="processManualScan()" class="btn-matte px-4 py-2 rounded-lg text-sm font-semibold transition">Submit ID</button>
+                    </div>
+                </div>
+
+                <!-- Scan Status Feedback Box -->
+                <div id="scan-feedback" class="mt-4 p-4 rounded-xl hidden text-center font-bold text-sm"></div>
+            </div>
+
+        </div>
+
+        <!---------------- VIEW 2: ADMIN LOGIN ---------------->
+        <div id="view-admin-login" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
+            <h2 class="text-xl font-bold text-matte-green mb-2">Admin Portal Login</h2>
+            <p class="text-xs text-gray-500 mb-6">Login To The Admin Account to Access The Admin Dashboard</p>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">Username</label>
+                    <input type="text" id="admin-user" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="admin">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Password</label>
+                    <input type="password" id="admin-pass" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="••••••••">
+                </div>
+                <button onclick="processAdminLogin()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Login</button>
+            </div>
+        </div>
+
+        <!---------------- VIEW 3: ADMIN DASHBOARD ---------------->
+        <div id="view-admin-dashboard" class="hidden space-y-6">
+            <div class="flex justify-between items-center bg-white border border-[#d8e2dc] p-4 rounded-xl shadow-sm">
+                <div>
+                    <h2 class="text-lg font-bold text-matte-green">Admin Dashboard</h2>
+                    <p class="text-xs text-gray-500">Manage Classes, Divisions, Students, and Badges</p>
+                </div>
+                <div class="flex gap-2">
+                    <a href="payments.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Monthly Payments</a>
+                    <button onclick="adminLogout()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-200 transition">Log Out</button>
+                </div>
+            </div>
+
+            <!-- Configuration: Add Grades & Divisions -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm">
+                    <h3 class="text-sm font-bold text-matte-green mb-2">Add New Grade Level</h3>
+                    <div class="flex gap-2">
+                        <input type="text" id="new-grade-input" placeholder="e.g. Grade 11" class="border border-gray-300 p-2 rounded-lg text-sm flex-grow outline-none">
+                        <button onclick="addGrade()" class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Add Grade</button>
+                    </div>
+                </div>
+                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm">
+                    <h3 class="text-sm font-bold text-matte-green mb-2">Add New Division Group</h3>
+                    <div class="flex gap-2">
+                        <input type="text" id="new-div-input" placeholder="e.g. Oak" class="border border-gray-300 p-2 rounded-lg text-sm flex-grow outline-none">
+                        <button onclick="addDivision()" class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Add Division</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Registration Forms -->
+            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm space-y-6">
+                <div>
+                    <h3 class="text-md font-bold text-matte-green mb-3">Register New Student</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <input type="text" id="reg-name" placeholder="Full Name" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
+                        <select id="reg-grade" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none font-medium"></select>
+                        <select id="reg-division" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none font-medium"></select>
+                        <button onclick="registerStudent()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition">Add Student</button>
+                    </div>
+                </div>
+                <div class="pt-5 border-t border-gray-200">
+                    <h3 class="text-md font-bold text-matte-green mb-3">Register New Teacher</h3>
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <input type="text" id="reg-teacher-name" placeholder="Teacher's Full Name" class="border border-gray-300 p-2.5 rounded-lg text-sm flex-grow outline-none">
+                        <button onclick="registerTeacher()" class="btn-matte font-semibold px-5 py-2.5 rounded-lg text-sm transition">Add Teacher</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Student Directory & Print Option -->
+            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-md font-bold text-matte-green">Directories & Badge Printing</h3>
+                    <div class="flex items-center gap-2">
+                        <select id="badge-print-filter" onchange="refreshUI()" class="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white">
+                            <option value="students">Student IDs</option>
+                            <option value="teachers">Teacher IDs</option>
+                            <option value="all">All IDs</option>
+                        </select>
+                        <button onclick="window.print()" class="bg-gray-100 border border-gray-300 text-gray-700 text-xs px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-200 transition">🖨️ Print Selected</button>
+                    </div>
+                </div>
+                
+                <!-- Printable ID Card Grid Format -->
+                <div id="printable-area">
+                    <div id="printable-cards-container" class="contents"></div>
+                </div>
+
+                <!-- Interactive Directory Table -->
+                <div class="overflow-x-auto mt-4 pt-4 border-t border-gray-200">
+                    <h3 class="text-md font-bold text-matte-green mb-3">Student Directory</h3>
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600">
+                                <th class="p-3">QR</th>
+                                <th class="p-3">Name</th>
+                                <th class="p-3">Grade</th>
+                                <th class="p-3">Division</th>
+                                <th class="p-3">ID Code</th>
+                                <th class="p-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="student-table-body" class="text-sm"></tbody>
+                    </table>
+                </div>
+                <div class="overflow-x-auto mt-6 pt-4 border-t border-gray-200">
+                    <h3 class="text-md font-bold text-matte-green mb-3">Teacher Directory</h3>
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600">
+                                <th class="p-3">QR</th>
+                                <th class="p-3">Name</th>
+                                <th class="p-3">Teacher ID</th>
+                                <th class="p-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="teacher-table-body" class="text-sm"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Organized Logs & History -->
+            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm">
+                <h3 class="text-md font-bold text-matte-green mb-4">Scan History Logs</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600">
+                                <th class="p-3">Time</th>
+                                <th class="p-3">Student Name</th>
+                                <th class="p-3">Class Group</th>
+                                <th class="p-3">Category</th>
+                                <th class="p-3">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-table-body" class="text-sm"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <script>
+        // Data Store Initialization
+        let grades = JSON.parse(localStorage.getItem('ecocanteen_grades')) || ["Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10"];
+        let divisions = JSON.parse(localStorage.getItem('ecocanteen_divisions')) || ["Hazel", "Maple", "Willow"];
+        let students = JSON.parse(localStorage.getItem('ecocanteen_students')) || [];
+        let teachers = JSON.parse(localStorage.getItem('ecocanteen_teachers')) || [];
+        let payments = JSON.parse(localStorage.getItem('ecocanteen_payments')) || [];
+        let paymentDeadlineDay = Number(localStorage.getItem('ecocanteen_payment_deadline_day')) || 25;
+        let dailyTracker = JSON.parse(localStorage.getItem('ecocanteen_tracker')) || {};
+        let dailyTrackerDate = localStorage.getItem('ecocanteen_tracker_date') || '';
+        let monthlyResetMonth = localStorage.getItem('ecocanteen_monthly_reset_month') || '';
+        let scanLogs = JSON.parse(localStorage.getItem('ecocanteen_logs')) || [];
+        let badgePrintIndividual = null;
+        let isAdminLoggedIn = sessionStorage.getItem('ecocanteen_admin_session') === 'true';
+        let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
+        let html5QrCode = null;
+        let firebaseDatabase = null;
+        let scanLocked = false;
+        let currentView = 'scanner';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyD9qr8eJ1jzU-mC49-UPuYf8fO1LTV6QVY",
+            authDomain: "canteen-28c1e.firebaseapp.com",
+            databaseURL: "https://canteen-28c1e-default-rtdb.firebaseio.com",
+            projectId: "canteen-28c1e",
+            storageBucket: "canteen-28c1e.firebasestorage.app",
+            messagingSenderId: "849945519532",
+            appId: "1:849945519532:web:37490f808061a05d324609",
+            measurementId: "G-BD7S67W9XK"
+        };
+
+        function isFirebaseConfigured() {
+            return firebaseConfig.apiKey && firebaseConfig.databaseURL;
+        }
+
+        function syncCloudData() {
+            if (!firebaseDatabase) return;
+
+            firebaseDatabase.ref('mcleods-canteen').set({
+                grades,
+                divisions,
+                students,
+                teachers,
+                payments,
+                paymentDeadlineDay,
+                dailyTracker,
+                dailyTrackerDate,
+                monthlyResetMonth,
+                scanLogs,
+                updatedAt: new Date().toISOString()
+            }).catch(error => console.error('Firebase sync failed:', error));
+        }
+
+        function loadCloudData() {
+            if (!isFirebaseConfigured()) {
+                console.info('Firebase is not configured. Using this browser\'s local storage.');
+                refreshUI();
+                switchView('scanner');
+                return;
+            }
+
+            try {
+                firebase.initializeApp(firebaseConfig);
+                firebaseDatabase = firebase.database();
+                firebaseDatabase.ref('mcleods-canteen').once('value').then(snapshot => {
+                    const cloudData = snapshot.val();
+                    if (cloudData) {
+                        grades = Array.isArray(cloudData.grades) ? cloudData.grades : grades;
+                        divisions = Array.isArray(cloudData.divisions) ? cloudData.divisions : divisions;
+                        students = Array.isArray(cloudData.students) ? cloudData.students : students;
+                        teachers = Array.isArray(cloudData.teachers) ? cloudData.teachers : teachers;
+                        payments = Array.isArray(cloudData.payments) ? cloudData.payments : payments;
+                        paymentDeadlineDay = Number(cloudData.paymentDeadlineDay) || paymentDeadlineDay;
+                        dailyTracker = cloudData.dailyTracker || {};
+                        dailyTrackerDate = cloudData.dailyTrackerDate || dailyTrackerDate;
+                        monthlyResetMonth = cloudData.monthlyResetMonth || monthlyResetMonth;
+                        scanLogs = Array.isArray(cloudData.scanLogs) ? cloudData.scanLogs : [];
+                    } else {
+                        syncCloudData();
+                    }
+                    runAutomaticResets();
+                    refreshUI();
+                    switchView('scanner');
+                    firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
+                        const latestData = latestSnapshot.val();
+                        if (!latestData) return;
+                        grades = Array.isArray(latestData.grades) ? latestData.grades : grades;
+                        divisions = Array.isArray(latestData.divisions) ? latestData.divisions : divisions;
+                        students = Array.isArray(latestData.students) ? latestData.students : students;
+                        teachers = Array.isArray(latestData.teachers) ? latestData.teachers : teachers;
+                        payments = Array.isArray(latestData.payments) ? latestData.payments : payments;
+                        paymentDeadlineDay = Number(latestData.paymentDeadlineDay) || paymentDeadlineDay;
+                        dailyTracker = latestData.dailyTracker || dailyTracker;
+                        dailyTrackerDate = latestData.dailyTrackerDate || dailyTrackerDate;
+                        monthlyResetMonth = latestData.monthlyResetMonth || monthlyResetMonth;
+                        scanLogs = Array.isArray(latestData.scanLogs) ? latestData.scanLogs : scanLogs;
+                        runAutomaticResets();
+                        refreshUI();
+                    });
+                }).catch(error => {
+                    console.error('Firebase loading failed:', error);
+                    refreshUI();
+                    switchView('scanner');
+                });
+            } catch (error) {
+                console.error('Firebase setup failed:', error);
+                refreshUI();
+                switchView('scanner');
+            }
+        }
+
+        function saveAppData() {
+            localStorage.setItem('ecocanteen_grades', JSON.stringify(grades));
+            localStorage.setItem('ecocanteen_divisions', JSON.stringify(divisions));
+            localStorage.setItem('ecocanteen_students', JSON.stringify(students));
+            localStorage.setItem('ecocanteen_teachers', JSON.stringify(teachers));
+            localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
+            localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
+            localStorage.setItem('ecocanteen_tracker', JSON.stringify(dailyTracker));
+            localStorage.setItem('ecocanteen_tracker_date', dailyTrackerDate);
+            localStorage.setItem('ecocanteen_monthly_reset_month', monthlyResetMonth);
+            localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs));
+            refreshUI();
+            syncCloudData();
+        }
+
+        function getMonthKey(date = new Date()) {
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        }
+
+        function getDayKey(date = new Date()) {
+            return `${getMonthKey(date)}-${String(date.getDate()).padStart(2, '0')}`;
+        }
+
+        function runAutomaticResets() {
+            const today = getDayKey();
+            const thisMonth = getMonthKey();
+            let dataChanged = false;
+
+            if (monthlyResetMonth !== thisMonth) {
+                monthlyResetMonth = thisMonth;
+                dailyTracker = {};
+                // A new meal month requires a payment for that month. Keep this
+                // status on the account so staff can see which accounts need action.
+                students.forEach(student => {
+                    if (isStudentEnrolled(student) && !getPaidPayment(student.id, thisMonth)) {
+                        student.paymentPaused = true;
+                    }
+                });
+                dataChanged = true;
+            }
+            if (dailyTrackerDate !== today) {
+                dailyTrackerDate = today;
+                dailyTracker = {};
+                dataChanged = true;
+            }
+            if (dataChanged) saveAppData();
+        }
+
+        function scheduleAutomaticResets() {
+            const now = new Date();
+            const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1);
+            setTimeout(() => {
+                runAutomaticResets();
+                scheduleAutomaticResets();
+            }, nextMidnight - now);
+        }
+
+        function getUpcomingMonthKey() {
+            const nextMonth = new Date();
+            nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
+            return getMonthKey(nextMonth);
+        }
+
+        function formatMealMonth(monthKey) {
+            const [year, month] = monthKey.split('-').map(Number);
+            return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1));
+        }
+
+        function isStudentEnrolled(student) {
+            return student.enrolled !== false;
+        }
+
+        function getPaidPayment(studentId, mealMonth) {
+            return payments.find(payment => payment.studentId === studentId && payment.mealMonth === mealMonth && payment.status === 'PAID');
+        }
+
+        function isFeePaused(student) {
+            return student.paymentPaused === true;
+        }
+
+        function isTeacherEnrolled(teacher) {
+            return teacher.enrolled !== false;
+        }
+
+        function isTeacherPaused(teacher) {
+            return teacher.accountPaused === true;
+        }
+
+        function switchView(viewName) {
+            currentView = viewName;
+            document.getElementById('view-scanner').classList.add('hidden');
+            document.getElementById('view-admin-login').classList.add('hidden');
+            document.getElementById('view-admin-dashboard').classList.add('hidden');
+            stopScanner();
+
+            if (viewName === 'scanner') {
+                document.getElementById('view-scanner').classList.remove('hidden');
+                initScanner();
+            } else if (viewName === 'login') {
+                document.getElementById('view-admin-login').classList.remove('hidden');
+            } else if (viewName === 'dashboard') {
+                document.getElementById('view-admin-dashboard').classList.remove('hidden');
+            }
+            updateNavigation();
+        }
+
+        function updateNavigation() {
+            const scannerButton = document.getElementById('scanner-nav-button');
+            const dashboardButton = document.getElementById('dashboard-nav-button');
+
+            scannerButton.classList.toggle('hidden', !isAdminLoggedIn || currentView !== 'dashboard');
+            dashboardButton.textContent = isAdminLoggedIn ? 'Admin Dashboard' : 'Admin Login';
+            dashboardButton.classList.toggle('admin-login-subtle', !isAdminLoggedIn);
+        }
+
+        function checkAdminAccess() {
+            if (isAdminLoggedIn) switchView('dashboard');
+            else switchView('login');
+        }
+
+        function processAdminLogin() {
+            const u = document.getElementById('admin-user').value;
+            const p = document.getElementById('admin-pass').value;
+            if (u === 'admin' && p === 'canteen123') {
+                isAdminLoggedIn = true;
+                currentAdminName = u;
+                sessionStorage.setItem('ecocanteen_admin_session', 'true');
+                sessionStorage.setItem('ecocanteen_admin_name', currentAdminName);
+                document.getElementById('admin-pass').value = '';
+                refreshUI();
+                switchView('dashboard');
+            } else {
+                alert('Invalid credentials!');
+            }
+        }
+
+        function adminLogout() {
+            isAdminLoggedIn = false;
+            currentAdminName = '';
+            sessionStorage.removeItem('ecocanteen_admin_session');
+            sessionStorage.removeItem('ecocanteen_admin_name');
+            switchView('scanner');
+        }
+
+        function addGrade() {
+            const val = document.getElementById('new-grade-input').value.trim();
+            if (val && !grades.includes(val)) {
+                grades.push(val);
+                document.getElementById('new-grade-input').value = '';
+                saveAppData();
+            }
+        }
+
+        function addDivision() {
+            const val = document.getElementById('new-div-input').value.trim();
+            if (val && !divisions.includes(val)) {
+                divisions.push(val);
+                document.getElementById('new-div-input').value = '';
+                saveAppData();
+            }
+        }
+
+        function registerStudent() {
+            const name = document.getElementById('reg-name').value.trim();
+            const grade = document.getElementById('reg-grade').value;
+            const division = document.getElementById('reg-division').value;
+            if (!name) { alert('Enter student name.'); return; }
+            
+            const uniqueId = 'MC-' + Math.floor(100000 + Math.random() * 900000);
+            students.push({ id: uniqueId, name, grade, division, enrolled: true });
+            document.getElementById('reg-name').value = '';
+            saveAppData();
+            alert('Student added successfully!');
+        }
+
+        function registerTeacher() {
+            const name = document.getElementById('reg-teacher-name').value.trim();
+            if (!name) { alert('Enter teacher name.'); return; }
+
+            const uniqueId = 'TEA-' + Math.floor(100000 + Math.random() * 900000);
+            teachers.push({ id: uniqueId, name, enrolled: true, accountPaused: false });
+            document.getElementById('reg-teacher-name').value = '';
+            saveAppData();
+            alert('Teacher added successfully!');
+        }
+
+        function handleScanResult(code) {
+            // QR readers report the same code repeatedly while it remains in view.
+            // Keep the five-second cooldown silent so only one scan is processed.
+            if (scanLocked) return;
+            scanLocked = true;
+            setTimeout(() => { scanLocked = false; }, 5000);
+
+            runAutomaticResets();
+            const category = document.getElementById('active-meal-category').value;
+            const feedbackEl = document.getElementById('scan-feedback');
+            const student = students.find(s => s.id === code);
+            const teacher = teachers.find(t => t.id === code);
+            const person = student || teacher;
+            const timeStr = new Date().toLocaleTimeString();
+
+            if (!person) {
+                feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
+                feedbackEl.innerHTML = `⚠️ UNKNOWN ID: "${code}" is not found.`;
+                return;
+            }
+
+            if (student) {
+                if (!isStudentEnrolled(person)) {
+                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-gray-200 text-gray-700 border border-gray-300 font-bold block text-sm";
+                    feedbackEl.innerHTML = `⛔ ACCOUNT CLOSED: ${person.name}'s canteen account is no longer active.`;
+                    return;
+                }
+                if (isFeePaused(person)) {
+                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
+                    feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${person.name}'s canteen access is paused until their meal fee is recorded as paid.`;
+                    scanLogs.unshift({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, status: 'Rejected (Account Paused)' });
+                    saveAppData();
+                    return;
+                }
+                const currentMealMonth = getMonthKey();
+                if (!getPaidPayment(person.id, currentMealMonth)) {
+                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
+                    feedbackEl.innerHTML = `💳 PAYMENT REQUIRED: ${person.name} has not paid for <b>${formatMealMonth(currentMealMonth)}</b> meals.`;
+                    scanLogs.unshift({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, status: 'Rejected (Payment Required)' });
+                    saveAppData();
+                    return;
+                }
+            }
+
+            if (teacher) {
+                if (!isTeacherEnrolled(teacher)) {
+                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-gray-200 text-gray-700 border border-gray-300 font-bold block text-sm";
+                    feedbackEl.innerHTML = `⛔ ACCOUNT CLOSED: ${teacher.name}'s canteen account is no longer active.`;
+                    scanLogs.unshift({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, status: 'Rejected (Account Closed)' });
+                    saveAppData();
+                    return;
+                }
+                if (isTeacherPaused(teacher)) {
+                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
+                    feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${teacher.name}'s canteen access is paused.`;
+                    scanLogs.unshift({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, status: 'Rejected (Account Paused)' });
+                    saveAppData();
+                    return;
+                }
+            }
+
+            const classGroup = student ? `${student.grade} / ${student.division}` : 'Teacher';
+            if (!dailyTracker[person.id]) dailyTracker[person.id] = { breakfast: false, lunch: false };
+            let claimed = category === 'Breakfast' ? dailyTracker[person.id].breakfast : dailyTracker[person.id].lunch;
+
+            if (claimed) {
+                feedbackEl.className = "mt-4 p-4 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 font-bold block text-sm";
+                feedbackEl.innerHTML = `❌ REJECTED: ${person.name} (${classGroup}) already claimed <b>${category}</b> today!`;
+                scanLogs.unshift({ time: timeStr, name: person.name, classGroup, category, status: 'Rejected (Duplicate)' });
+            } else {
+                if (category === 'Breakfast') dailyTracker[person.id].breakfast = true;
+                if (category === 'Lunch') dailyTracker[person.id].lunch = true;
+
+                feedbackEl.className = "mt-4 p-4 rounded-xl bg-[#d8e2dc] text-[#2d4a3e] border border-[#b2c4bc] font-bold block text-sm";
+                feedbackEl.innerHTML = `✅ SUCCESS: ${category} recorded for <b>${person.name}</b> [${classGroup}]`;
+                scanLogs.unshift({ time: timeStr, name: person.name, classGroup, category, status: 'Success' });
+            }
+            saveAppData();
+        }
+
+        function processManualScan() {
+            const inputVal = document.getElementById('manual-id-input').value.trim();
+            if (inputVal) {
+                handleScanResult(inputVal);
+                document.getElementById('manual-id-input').value = '';
+            }
+        }
+
+        function initScanner() {
+            if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+            html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 220, height: 220 } },
+                (decodedText) => handleScanResult(decodedText),
+                (err) => {}
+            ).catch(err => console.log("Camera inactive or blocked"));
+        }
+
+        function stopScanner() {
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().catch(err => {});
+            }
+        }
+
+        function refreshUI() {
+            // Populate Grade/Division Dropdowns
+            document.getElementById('reg-grade').innerHTML = grades.map(g => `<option value="${g}">${g}</option>`).join('');
+            document.getElementById('reg-division').innerHTML = divisions.map(d => `<option value="${d}">${d}</option>`).join('');
+
+            // Populate directories and printable ID cards
+            const tableBody = document.getElementById('student-table-body');
+            const teacherTableBody = document.getElementById('teacher-table-body');
+            const printCardsContainer = document.getElementById('printable-cards-container');
+
+            if (students.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>`;
+            } else {
+                tableBody.innerHTML = students.map(s => `
+                    <tr class="border-b border-gray-100">
+                        <td class="p-3"><div id="directory-student-qr-${s.id}"></div></td>
+                        <td class="p-3 font-semibold">${s.name}</td>
+                        <td class="p-3">${s.grade}</td>
+                        <td class="p-3">${s.division}</td>
+                        <td class="p-3 font-mono text-xs text-gray-500">${s.id}</td>
+                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('student', '${s.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isStudentEnrolled(s) ? `<button onclick="closeStudentAccount('${s.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : '<span class="text-xs font-semibold text-gray-500">Closed</span>'}</td>
+                    </tr>
+                `).join('');
+            }
+
+            if (teachers.length === 0) {
+                teacherTableBody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">No teachers registered yet.</td></tr>`;
+            } else {
+                teacherTableBody.innerHTML = teachers.map(t => `
+                    <tr class="border-b border-gray-100">
+                        <td class="p-3"><div id="directory-teacher-qr-${t.id}"></div></td>
+                        <td class="p-3 font-semibold">${t.name}</td>
+                        <td class="p-3 font-mono text-xs text-gray-500">${t.id}</td>
+                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('teacher', '${t.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isTeacherEnrolled(t) ? `${isTeacherPaused(t) ? `<button onclick="unpauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeTeacherAccount('${t.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : '<span class="text-xs font-semibold text-gray-500">Closed</span>'}</td>
+                    </tr>
+                `).join('');
+            }
+
+            const printFilter = document.getElementById('badge-print-filter').value;
+            let printablePeople = [];
+            if (badgePrintIndividual) {
+                const list = badgePrintIndividual.type === 'teacher' ? teachers : students;
+                const person = list.find(p => p.id === badgePrintIndividual.id);
+                if (person) printablePeople = [{ ...person, type: badgePrintIndividual.type }];
+            } else {
+                if (printFilter === 'students' || printFilter === 'all') printablePeople.push(...students.map(s => ({ ...s, type: 'student' })));
+                if (printFilter === 'teachers' || printFilter === 'all') printablePeople.push(...teachers.map(t => ({ ...t, type: 'teacher' })));
+            }
+
+            printCardsContainer.innerHTML = printablePeople.length === 0 ?
+                `<p class="text-center text-gray-400 col-span-2">No badges to print.</p>` :
+                printablePeople.map(person => `
+                    <div class="print-card">
+                        <div class="badge-person-row">
+                            <div class="badge-qr" id="print-qr-${person.id}"></div>
+                            <div class="badge-person-details">
+                                <p><strong>Name:</strong> ${person.name}</p>
+                                <p><strong>Class:</strong> ${person.type === 'teacher' ? 'Teacher' : `${person.grade} — ${person.division}`}</p>
+                            </div>
+                        </div>
+                        <div class="badge-brand-row">
+                            <img class="badge-logo" src="Not needed/McLeod's English School LOGO.png" alt="McLEOD's English School logo">
+                            <p class="badge-title">Canteen Card</p>
+                        </div>
+                        <p class="badge-footer">Property of McLEOD's English School<br>if found please return to,<br>McLEOD's English School</p>
+                        <p class="badge-id">${person.id}</p>
+                    </div>
+                `).join('');
+
+            setTimeout(() => {
+                printablePeople.forEach(person => {
+                    const el = document.getElementById(`print-qr-${person.id}`);
+                    if (el && el.innerHTML === "") new QRCode(el, { text: person.id, width: 100, height: 100 });
+                });
+                students.forEach(student => {
+                    const el = document.getElementById(`directory-student-qr-${student.id}`);
+                    if (el && el.innerHTML === "") new QRCode(el, { text: student.id, width: 44, height: 44 });
+                });
+                teachers.forEach(teacher => {
+                    const el = document.getElementById(`directory-teacher-qr-${teacher.id}`);
+                    if (el && el.innerHTML === "") new QRCode(el, { text: teacher.id, width: 44, height: 44 });
+                });
+            }, 100);
+
+            // Populate Logs
+            const logsBody = document.getElementById('logs-table-body');
+            logsBody.innerHTML = scanLogs.length === 0 ? `<tr><td colspan="5" class="p-4 text-center text-gray-400">No scan activity logged yet.</td></tr>` :
+                scanLogs.map(l => `
+                    <tr class="border-b border-gray-100">
+                        <td class="p-3 font-mono text-xs text-gray-500">${l.time}</td>
+                        <td class="p-3 font-medium">${l.name}</td>
+                        <td class="p-3 text-xs">${l.classGroup}</td>
+                        <td class="p-3 text-xs">${l.category}</td>
+                        <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${l.status.includes('Success') ? 'bg-[#d8e2dc] text-[#2d4a3e]' : 'bg-red-100 text-red-800'}">${l.status}</span></td>
+                    </tr>
+                `).join('');
+
+        }
+
+        function closeStudentAccount(id) {
+            const student = students.find(s => s.id === id);
+            if (!student || !isStudentEnrolled(student)) return;
+            if (!confirm(`Close ${student.name}'s canteen account? Their payment history will be preserved.`)) return;
+            student.enrolled = false;
+            saveAppData();
+        }
+
+        function pauseTeacherAccount(id) {
+            const teacher = teachers.find(t => t.id === id);
+            if (!teacher || !isTeacherEnrolled(teacher) || isTeacherPaused(teacher)) return;
+            if (!confirm(`Pause ${teacher.name}'s canteen account?`)) return;
+            teacher.accountPaused = true;
+            saveAppData();
+        }
+
+        function unpauseTeacherAccount(id) {
+            const teacher = teachers.find(t => t.id === id);
+            if (!teacher || !isTeacherEnrolled(teacher) || !isTeacherPaused(teacher)) return;
+            if (!confirm(`Unpause ${teacher.name}'s canteen account?`)) return;
+            teacher.accountPaused = false;
+            saveAppData();
+        }
+
+        function closeTeacherAccount(id) {
+            const teacher = teachers.find(t => t.id === id);
+            if (!teacher || !isTeacherEnrolled(teacher)) return;
+            if (!confirm(`Close ${teacher.name}'s canteen account? Their scan history will be preserved.`)) return;
+            teacher.enrolled = false;
+            saveAppData();
+        }
+
+        function printIndividualBadge(type, id) {
+            badgePrintIndividual = { type, id };
+            refreshUI();
+            setTimeout(() => window.print(), 150);
+        }
+
+        window.addEventListener('afterprint', () => {
+            if (badgePrintIndividual) {
+                badgePrintIndividual = null;
+                refreshUI();
+            }
+        });
+
+        loadCloudData();
+        runAutomaticResets();
+        scheduleAutomaticResets();
+    </script>
+</body>
+</html>
