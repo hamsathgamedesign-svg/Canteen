@@ -474,7 +474,7 @@
 
             scannerButton.classList.toggle('hidden', !isAdminLoggedIn || currentView !== 'dashboard');
             dashboardButton.textContent = isAdminLoggedIn ? 'Admin Dashboard' : 'Admin Login';
-            dashboardButton.classList.toggle('admin-login-subtle', !isAdminLoggedIn);
+            dashboardButton.classList.add('admin-login-subtle');
         }
 
         function checkAdminAccess() {
