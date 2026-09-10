@@ -202,6 +202,14 @@
             persist();
         }
 
+        function deleteStudentPermanently(id) {
+            const student = students.find(item => item.id === id);
+            if (!student || isStudentEnrolled(student)) return;
+            if (!confirm(`Permanently delete ${student.name}'s account? This cannot be undone.`)) return;
+            students = students.filter(item => item.id !== id);
+            persist();
+        }
+
         function pauseStudentAccount(id) {
             const student = students.find(item => item.id === id);
             if (!student || !isStudentEnrolled(student) || student.paymentPaused === true) return;
@@ -229,7 +237,7 @@
             document.getElementById('account-status-table-body').innerHTML = students.length ? students.map(student => {
                 const payment = getPaidPayment(student.id, upcoming);
                 const status = getAccountStatus(student);
-                return `<tr class="border-b border-gray-100"><td class="p-3 font-medium">${student.name}</td><td class="p-3 text-xs">${formatMealMonth(upcoming)}</td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(payment ? 'PAID' : 'PAYMENT DUE')}">${payment ? 'PAID' : 'UNPAID'}</span></td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(status)}">${status}</span></td><td class="p-3">${isStudentEnrolled(student) ? `<button onclick="openPaymentForStudent('${student.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Record Payment</button> ${student.paymentPaused ? `<button onclick="unpauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeStudentAccount('${student.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : 'Account closed'}</td></tr>`;
+                return `<tr class="border-b border-gray-100"><td class="p-3 font-medium">${student.name}</td><td class="p-3 text-xs">${formatMealMonth(upcoming)}</td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(payment ? 'PAID' : 'PAYMENT DUE')}">${payment ? 'PAID' : 'UNPAID'}</span></td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(status)}">${status}</span></td><td class="p-3">${isStudentEnrolled(student) ? `<button onclick="openPaymentForStudent('${student.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Record Payment</button> ${student.paymentPaused ? `<button onclick="unpauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeStudentAccount('${student.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<button onclick="deleteStudentPermanently('${student.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td></tr>`;
             }).join('') : '<tr><td colspan="5" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>';
             document.getElementById('payment-audit-table-body').innerHTML = payments.length ? payments.map(payment => `<tr class="border-b border-gray-100"><td class="p-3 text-xs text-gray-500">${payment.paymentDate || 'Not recorded'}</td><td class="p-3 font-medium">${payment.studentName}</td><td class="p-3 text-xs">${formatMealMonth(payment.mealMonth)}</td></tr>`).join('') : '<tr><td colspan="3" class="p-4 text-center text-gray-400">No payments recorded yet.</td></tr>';
         }
