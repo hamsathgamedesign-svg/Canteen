@@ -109,6 +109,15 @@
             render();
         }
 
+        function removeExpiredClosedAccounts() {
+            const deletionDelay = 5 * 60 * 1000;
+            const now = Date.now();
+            const remainingStudents = students.filter(student => student.enrolled !== false || !student.closedAt || now - student.closedAt < deletionDelay);
+            if (remainingStudents.length === students.length) return;
+            students = remainingStudents;
+            persist();
+        }
+
         function loadData() {
             try {
                 firebase.initializeApp(firebaseConfig);
@@ -120,6 +129,7 @@
                         payments = Array.isArray(data.payments) ? data.payments : payments;
                         paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
                     }
+                    removeExpiredClosedAccounts();
                     render();
                     firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
@@ -188,6 +198,7 @@
             if (!student || !isStudentEnrolled(student)) return;
             if (!confirm(`Close ${student.name}'s canteen account? Their payment history will be preserved.`)) return;
             student.enrolled = false;
+            student.closedAt = Date.now();
             persist();
         }
 
@@ -225,6 +236,7 @@
 
         if (sessionStorage.getItem('ecocanteen_admin_session') === 'true') showApp();
         else document.getElementById('payment-login').classList.remove('hidden');
+        setInterval(removeExpiredClosedAccounts, 60 * 1000);
     </script>
 </body>
 </html>
