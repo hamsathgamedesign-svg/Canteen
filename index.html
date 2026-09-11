@@ -159,6 +159,7 @@
 
             <!-- Registration Forms -->
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm space-y-6">
+                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Loading the latest data from the cloud - please wait a moment before adding students, teachers, or classes.</p>
                 <div>
                     <h3 class="text-md font-bold text-matte-green mb-3">Register New Student</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -271,6 +272,13 @@
         let firebaseDatabase = null;
         let scanLocked = false;
         let currentView = 'scanner';
+        // Becomes true once we've confirmed what's actually in the cloud database.
+        // Registering people or recording anything BEFORE this is true is dangerous:
+        // this device's localStorage can hold old/stale data (e.g. long-ago test
+        // students or payments), and every save pushes the ENTIRE local copy back
+        // up to Firebase. Writing too early silently resurrects that stale data
+        // and overwrites whatever is really in the cloud. See addStudent/addTeacher.
+        let cloudDataReady = false;
 
         function addScanLog(entry) { scanLogs.unshift({ ...entry, occurredAt: new Date().toISOString() }); }
 
@@ -291,8 +299,15 @@
 
         function syncCloudData() {
             if (!firebaseDatabase) return;
+            if (!cloudDataReady) {
+                // Refuse to write until we know what's actually in the cloud.
+                // Writing early would push this device's possibly-stale local
+                // copy over the top of the real cloud data.
+                console.warn('Skipped cloud sync: still waiting for the initial load from Firebase.');
+                return;
+            }
 
-            firebaseDatabase.ref('mcleods-canteen').set({
+            firebaseDatabase.ref('mcleods-canteen').update({
                 grades,
                 divisions,
                 students,
@@ -310,6 +325,7 @@
         function loadCloudData() {
             if (!isFirebaseConfigured()) {
                 console.info('Firebase is not configured. Using this browser\'s local storage.');
+                cloudDataReady = true;
                 refreshUI();
                 switchView('scanner');
                 return;
@@ -331,7 +347,10 @@
                         dailyTrackerDate = cloudData.dailyTrackerDate || dailyTrackerDate;
                         monthlyResetMonth = cloudData.monthlyResetMonth || monthlyResetMonth;
                         scanLogs = Array.isArray(cloudData.scanLogs) ? cloudData.scanLogs : [];
+                        cloudDataReady = true;
                     } else {
+                        // Nothing in the cloud yet - it's safe to seed it from local data.
+                        cloudDataReady = true;
                         syncCloudData();
                     }
                     runAutomaticResets();
@@ -355,11 +374,16 @@
                     });
                 }).catch(error => {
                     console.error('Firebase loading failed:', error);
+                    // We couldn't confirm the cloud state, so treat this device's
+                    // local copy as the only source of truth for now rather than
+                    // silently blocking every save.
+                    cloudDataReady = true;
                     refreshUI();
                     switchView('scanner');
                 });
             } catch (error) {
                 console.error('Firebase setup failed:', error);
+                cloudDataReady = true;
                 refreshUI();
                 switchView('scanner');
             }
@@ -524,6 +548,7 @@
         }
 
         function addGrade() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const val = document.getElementById('new-grade-input').value.trim();
             if (val && !grades.includes(val)) {
                 grades.push(val);
@@ -533,6 +558,7 @@
         }
 
         function addDivision() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const val = document.getElementById('new-div-input').value.trim();
             if (val && !divisions.includes(val)) {
                 divisions.push(val);
@@ -542,6 +568,7 @@
         }
 
         function registerStudent() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const name = document.getElementById('reg-name').value.trim();
             const grade = document.getElementById('reg-grade').value;
             const division = document.getElementById('reg-division').value;
@@ -555,6 +582,7 @@
         }
 
         function registerTeacher() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const name = document.getElementById('reg-teacher-name').value.trim();
             if (!name) { alert('Enter teacher name.'); return; }
 
@@ -670,6 +698,17 @@
         }
 
         function refreshUI() {
+            // Show a banner and disable data-entry while we still don't know
+            // what's actually saved in the cloud (see cloudDataReady).
+            const syncBanner = document.getElementById('cloud-sync-banner');
+            const stillLoading = isFirebaseConfigured() && !cloudDataReady;
+            if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
+            ['reg-name', 'reg-grade', 'reg-division', 'reg-teacher-name', 'new-grade-input', 'new-div-input'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = stillLoading;
+            });
+            document.querySelectorAll('[onclick="registerStudent()"], [onclick="registerTeacher()"], [onclick="addGrade()"], [onclick="addDivision()"]').forEach(btn => { btn.disabled = stillLoading; btn.classList.toggle('opacity-50', stillLoading); btn.classList.toggle('cursor-not-allowed', stillLoading); });
+
             // Populate Grade/Division Dropdowns
             document.getElementById('reg-grade').innerHTML = grades.map(g => `<option value="${g}">${g}</option>`).join('');
             document.getElementById('reg-division').innerHTML = divisions.map(d => `<option value="${d}">${d}</option>`).join('');
