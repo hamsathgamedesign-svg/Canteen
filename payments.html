@@ -3,306 +3,90 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>McLEOD's English School Canteen Monitor</title>
+    <title>Monthly Canteen Payments | McLEOD's English School</title>
     <link rel="icon" type="image/png" href="Not needed/McLeod's English School LOGO.png">
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
     <style>
         body { background-color: #f4f6f0; color: #2d3732; }
         .bg-matte-green { background-color: #2d4a3e; }
         .text-matte-green { color: #2d4a3e; }
-        .border-matte-green { border-color: #2d4a3e; }
         .btn-matte { background-color: #2d4a3e; color: #f4f6f0; }
         .btn-matte:hover { background-color: #243c32; }
-        #dashboard-nav-button { background-color: #3c5f51; color: #f4f6f0; }
-        #dashboard-nav-button.admin-login-subtle { background-color: #2d4a3e; color: #476f5f; opacity: 0.15; }
         .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
-
-        .print-card {
-            background: #ffffff;
-            border: 4px solid #1e6b1a;
-            border-radius: 2px;
-            color: #1f2937;
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            min-height: 350px;
-            padding: 18px;
-        }
-        .badge-person-row { display: flex; align-items: center; gap: 18px; }
-        .badge-qr { flex: 0 0 112px; min-height: 112px; display: flex; align-items: center; justify-content: center; }
-        .badge-person-details { font-size: 14px; line-height: 1.45; }
-        .badge-person-details strong { color: #2d4a3e; }
-        .badge-brand-row { display: flex; align-items: center; gap: 18px; margin-top: 4px; }
-        .badge-logo { width: 76px; height: 76px; object-fit: contain; }
-        .badge-title { color: #1f2937; font-size: 23px; font-weight: 700; }
-        .badge-footer { font-size: 14px; line-height: 1.35; margin-top: auto; padding-left: 4px; }
-        .badge-id { color: #4b5563; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; text-align: right; }
-        
-        @media print {
-            body * { visibility: hidden; }
-            #printable-area, #printable-area * { visibility: visible; }
-            #printable-area { position: absolute; left: 0; top: 0; width: 100%; display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; padding: 20px; }
-            .print-card { box-sizing: border-box; min-height: 54mm; padding: 4mm; page-break-inside: avoid; width: 85mm; }
-            .badge-person-row { gap: 4mm; }
-            .badge-qr { flex-basis: 28mm; min-height: 28mm; }
-            .badge-qr img { width: 28mm !important; height: 28mm !important; }
-            .badge-person-details { font-size: 10pt; }
-            .badge-brand-row { gap: 5mm; }
-            .badge-logo { width: 18mm; height: 18mm; }
-            .badge-title { font-size: 16pt; }
-            .badge-footer { font-size: 10pt; }
-        }
     </style>
-<style>
-#scan-result-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:9999;padding:20px}
-#scan-result-modal.show{display:flex}
-.scan-result-card{width:min(440px,100%);background:#fff;border-radius:24px;padding:28px;text-align:center;box-shadow:0 25px 70px rgba(0,0,0,.3);animation:scanPop .18s ease-out}
-.scan-result-icon{font-size:56px;line-height:1;margin-bottom:12px}.scan-result-title{font-size:30px;font-weight:900;margin-bottom:10px}.scan-result-message{font-size:16px;line-height:1.5;color:#4b5563}.scan-result-close{margin-top:22px;width:100%;padding:12px 18px;border:0;border-radius:14px;background:#2d4a3e;color:#fff;font-weight:800;cursor:pointer}
-.scan-result-card.accepted{border:4px solid #86efac}.scan-result-card.rejected{border:4px solid #fca5a5}.scan-result-card.warning{border:4px solid #fcd34d}
-@keyframes scanPop{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
-</style>
 </head>
-<body class="min-h-screen flex flex-col">
-
-    <!-- Scan Result Popup -->
-    <div id="scan-result-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="scan-result-title">
-        <div id="scan-result-card" class="scan-result-card rejected">
-            <div id="scan-result-icon" class="scan-result-icon">❌</div>
-            <div id="scan-result-title" class="scan-result-title">REJECTED</div>
-            <div id="scan-result-message" class="scan-result-message"></div>
-            <button type="button" class="scan-result-close" onclick="closeScanResult()">OK</button>
-        </div>
-    </div>
-
-    <!-- Header Navigation -->
+<body class="min-h-screen">
     <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
         <div class="flex items-center gap-2">
             <span role="img" aria-label="McLEOD's English School logo" class="header-school-logo"></span>
             <h1 class="text-xl font-bold tracking-wide">McLEOD's English School Canteen Monitor</h1>
         </div>
-        <div id="navigation-controls" class="space-x-2">
-            <button id="scanner-nav-button" onclick="switchView('scanner')" class="hidden px-4 py-2 rounded bg-[#3c5f51] hover:bg-[#476f5f] transition font-medium text-sm">Scanning Mode</button>
-            <button id="dashboard-nav-button" onclick="checkAdminAccess()" title="Admin Login" aria-label="Admin Login" class="px-4 py-2 rounded transition font-medium text-sm admin-login-subtle">Admin Login</button>
-        </div>
+        <a href="canteen.html" class="px-4 py-2 rounded bg-[#3c5f51] hover:bg-[#476f5f] transition font-medium text-sm">← Admin Dashboard</a>
     </header>
 
-    <main class="flex-grow max-w-5xl w-full mx-auto p-4 sm:p-6">
-
-        <!---------------- VIEW 1: CANTEEN CAMERA & MANUAL SCANNER ---------------->
-        <div id="view-scanner" class="space-y-6">
-            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm max-w-xl mx-auto">
-                <h2 class="text-xl font-bold text-matte-green mb-4">Canteen Terminal Scanner</h2>
-                
-                <div class="mb-4">
-                    <label class="block text-sm font-semibold mb-1">Select Meal Category:</label>
-                    <select id="active-meal-category" class="w-full border border-gray-300 rounded-lg p-2.5 bg-[#f4f6f0] font-medium outline-none">
-                        <option value="Breakfast">Breakfast</option>
-                        <option value="Mid-Morning">Mid-Morning</option>
-                        <option value="Lunch">Lunch</option>
-                        <option value="Mid-Evening">Mid-Evening</option>
-                        <option value="Dinner">Dinner</option>
-                    </select>
-                    <p class="text-xs text-gray-500 mt-1">Breakfast is only available for Grade 1 and Grade 2 students.</p>
-                </div>
-
-                <!-- Live Camera Feed Container -->
-                <div class="mb-4">
-                    <label class="block text-sm font-semibold mb-1">Scan QR via Camera:</label>
-                    <div id="reader" class="w-full rounded-lg overflow-hidden border border-gray-300 bg-black"></div>
-                </div>
-
-                <!-- Fallback Manual ID Input -->
-                <div class="mt-4 pt-4 border-t border-gray-200">
-                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Camera not working? Enter ID manually:</label>
-                    <div class="flex gap-2">
-                        <input type="text" id="manual-id-input" placeholder="e.g. ECO-584920" class="flex-grow border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
-                        <button onclick="processManualScan()" class="btn-matte px-4 py-2 rounded-lg text-sm font-semibold transition">Submit ID</button>
-                    </div>
-                </div>
-
-                <!-- Scan Status Feedback Box -->
-                <div id="scan-feedback" class="mt-4 p-4 rounded-xl hidden text-center font-bold text-sm"></div>
-            </div>
-
-        </div>
-
-        <!---------------- VIEW 2: ADMIN LOGIN ---------------->
-        <div id="view-admin-login" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
-            <h2 class="text-xl font-bold text-matte-green mb-2">Admin Portal Login</h2>
-            <p class="text-xs text-gray-500 mb-6">Login To The Admin Account to Access The Admin Dashboard</p>
+    <main class="max-w-6xl w-full mx-auto p-4 sm:p-6">
+        <section id="payment-login" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
+            <h2 class="text-xl font-bold text-matte-green mb-2">Payment Administration Login</h2>
+            <p class="text-xs text-gray-500 mb-6">Only authorised staff can record payments.</p>
             <div class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium mb-1">Username</label>
-                    <input type="text" id="admin-user" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="admin">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium mb-1">Password</label>
-                    <input type="password" id="admin-pass" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="••••••••">
-                </div>
-                <button onclick="processAdminLogin()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Login</button>
+                <input id="admin-user" type="text" placeholder="Username" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
+                <input id="admin-pass" type="password" placeholder="Password" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
+                <button onclick="login()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Login</button>
             </div>
-        </div>
+        </section>
 
-        <!---------------- VIEW 3: ADMIN DASHBOARD ---------------->
-        <div id="view-admin-dashboard" class="hidden space-y-6">
-            <div class="flex justify-between items-center bg-white border border-[#d8e2dc] p-4 rounded-xl shadow-sm">
+        <section id="payment-app" class="hidden space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white border border-[#d8e2dc] p-4 rounded-xl shadow-sm">
                 <div>
-                    <h2 class="text-lg font-bold text-matte-green">Admin Dashboard</h2>
-                    <p class="text-xs text-gray-500">Manage Classes, Divisions, Students, and Badges</p>
+                    <h2 class="text-lg font-bold text-matte-green">Monthly Canteen Payments</h2>
+                    <p class="text-xs text-gray-500">Record parent payments and manage student canteen account eligibility.</p>
                 </div>
-                <div class="flex gap-2">
-                    <a href="payments.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Monthly Payments</a>
-                    <a href="reports.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Reports</a>
-                    <button onclick="adminLogout()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-200 transition">Log Out</button>
-                </div>
+                <button onclick="logout()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-200 transition">Log Out</button>
             </div>
 
-            <!-- Configuration: Add Grades & Divisions -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm">
-                    <h3 class="text-sm font-bold text-matte-green mb-2">Add New Grade Level</h3>
-                    <div class="flex gap-2">
-                        <input type="text" id="new-grade-input" placeholder="e.g. Grade 11" class="border border-gray-300 p-2 rounded-lg text-sm flex-grow outline-none">
-                        <button onclick="addGrade()" class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Add Grade</button>
-                    </div>
-                </div>
-                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm">
-                    <h3 class="text-sm font-bold text-matte-green mb-2">Add New Division Group</h3>
-                    <div class="flex gap-2">
-                        <input type="text" id="new-div-input" placeholder="e.g. Oak" class="border border-gray-300 p-2 rounded-lg text-sm flex-grow outline-none">
-                        <button onclick="addDivision()" class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Add Division</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Registration Forms -->
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm space-y-6">
-                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Loading the latest data from the cloud - please wait a moment before adding students, teachers, or classes.</p>
-                <div>
-                    <h3 class="text-md font-bold text-matte-green mb-3">Register New Student</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                        <input type="text" id="reg-name" placeholder="Full Name" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
-                        <select id="reg-grade" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none font-medium"></select>
-                        <select id="reg-division" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none font-medium"></select>
-                        <button onclick="registerStudent()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition">Add Student</button>
+                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Loading the latest data from the cloud - please wait a moment before recording payments or editing accounts.</p>
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                        <h3 class="text-md font-bold text-matte-green">Renew Monthly Canteen Payment</h3>
+                        <p class="text-xs text-gray-500 mt-1">Select the student, the month being paid for, and the payment date.</p>
                     </div>
                 </div>
-                <div class="pt-5 border-t border-gray-200">
-                    <h3 class="text-md font-bold text-matte-green mb-3">Register New Teacher</h3>
-                    <div class="flex flex-col sm:flex-row gap-3">
-                        <input type="text" id="reg-teacher-name" placeholder="Teacher's Full Name" class="border border-gray-300 p-2.5 rounded-lg text-sm flex-grow outline-none">
-                        <button onclick="registerTeacher()" class="btn-matte font-semibold px-5 py-2.5 rounded-lg text-sm transition">Add Teacher</button>
-                    </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <select id="payment-student" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none"></select>
+                    <input id="payment-meal-month" type="month" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none"> <input id="payment-date" type="date" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
+                    <button onclick="markPaymentAsPaid()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition">Complete Payment</button>
                 </div>
             </div>
 
-            <!-- Student Directory & Print Option -->
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-md font-bold text-matte-green">Directories & Badge Printing</h3>
-                    <div class="flex items-center gap-2">
-                        <select id="badge-print-filter" onchange="refreshUI()" class="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white">
-                            <option value="students">Student IDs</option>
-                            <option value="teachers">Teacher IDs</option>
-                            <option value="all">All IDs</option>
-                        </select>
-                        <button onclick="window.print()" class="bg-gray-100 border border-gray-300 text-gray-700 text-xs px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-200 transition">🖨️ Print Selected</button>
-                    </div>
-                </div>
-                
-                <!-- Printable ID Card Grid Format -->
-                <div id="printable-area">
-                    <div id="printable-cards-container" class="contents"></div>
-                </div>
-
-                <!-- Interactive Directory Table -->
-                <div class="overflow-x-auto mt-4 pt-4 border-t border-gray-200">
-                    <h3 class="text-md font-bold text-matte-green mb-3">Student Directory</h3>
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600">
-                                <th class="p-3">QR</th>
-                                <th class="p-3">Name</th>
-                                <th class="p-3">Grade</th>
-                                <th class="p-3">Division</th>
-                                <th class="p-3">ID Code</th>
-                                <th class="p-3">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="student-table-body" class="text-sm"></tbody>
-                    </table>
-                </div>
-                <div class="overflow-x-auto mt-6 pt-4 border-t border-gray-200">
-                    <h3 class="text-md font-bold text-matte-green mb-3">Teacher Directory</h3>
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600">
-                                <th class="p-3">QR</th>
-                                <th class="p-3">Name</th>
-                                <th class="p-3">Teacher ID</th>
-                                <th class="p-3">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="teacher-table-body" class="text-sm"></tbody>
-                    </table>
-                </div>
+                <h3 class="text-md font-bold text-matte-green mb-1">Canteen Account Status</h3>
+                <p class="text-xs text-gray-500 mb-4">The status uses payment for the upcoming meal month. Closed accounts keep their payment history.</p>
+                <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600"><th class="p-3">Student</th><th class="p-3">Upcoming Meal Month</th><th class="p-3">Payment</th><th class="p-3">Account Status</th><th class="p-3">Action</th></tr></thead><tbody id="account-status-table-body" class="text-sm"></tbody></table></div>
             </div>
 
-            <!-- Organized Logs & History -->
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm">
-                <h3 class="text-md font-bold text-matte-green mb-4">Scan History Logs</h3>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600">
-                                <th class="p-3">Time</th>
-                                <th class="p-3">Student Name</th>
-                                <th class="p-3">Class Group</th>
-                                <th class="p-3">Category</th>
-                                <th class="p-3">Status</th>
-                            </tr>
-                        </thead>
-                        <tbody id="logs-table-body" class="text-sm"></tbody>
-                    </table>
-                </div>
+                <h3 class="text-md font-bold text-matte-green mb-4">Payment Audit History</h3>
+                <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600"><th class="p-3">Payment Date</th><th class="p-3">Student</th><th class="p-3">Meal Month</th></tr></thead><tbody id="payment-audit-table-body" class="text-sm"></tbody></table></div>
             </div>
-
-        </div>
-
+        </section>
     </main>
 
     <script>
-        // Data Store Initialization
-        let grades = JSON.parse(localStorage.getItem('ecocanteen_grades')) || ["Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10"];
-        let divisions = JSON.parse(localStorage.getItem('ecocanteen_divisions')) || ["Hazel", "Maple", "Willow"];
         let students = JSON.parse(localStorage.getItem('ecocanteen_students')) || [];
-        let teachers = JSON.parse(localStorage.getItem('ecocanteen_teachers')) || [];
         let payments = JSON.parse(localStorage.getItem('ecocanteen_payments')) || [];
         let paymentDeadlineDay = Number(localStorage.getItem('ecocanteen_payment_deadline_day')) || 25;
-        let dailyTracker = JSON.parse(localStorage.getItem('ecocanteen_tracker')) || {};
-        let dailyTrackerDate = localStorage.getItem('ecocanteen_tracker_date') || '';
-        let monthlyResetMonth = localStorage.getItem('ecocanteen_monthly_reset_month') || '';
-        let scanLogs = JSON.parse(localStorage.getItem('ecocanteen_logs')) || [];
-        let badgePrintIndividual = null;
-        let isAdminLoggedIn = sessionStorage.getItem('ecocanteen_admin_session') === 'true';
-        let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
-        let html5QrCode = null;
         let firebaseDatabase = null;
-        let scanLocked = false;
-        let currentView = 'scanner';
+        let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
         // Becomes true once we've confirmed what's actually in the cloud database.
-        // Registering people or recording anything BEFORE this is true is dangerous:
-        // this device's localStorage can hold old/stale data (e.g. long-ago test
-        // students or payments), and every save pushes the ENTIRE local copy back
-        // up to Firebase. Writing too early silently resurrects that stale data
-        // and overwrites whatever is really in the cloud. See addStudent/addTeacher.
+        // Recording payments or editing accounts BEFORE this is true is dangerous:
+        // this device's localStorage can hold old/stale data (e.g. a long-ago test
+        // payment), and every save pushes that local copy back up to Firebase,
+        // silently resurrecting stale records. See markPaymentAsPaid, etc.
         let cloudDataReady = false;
-
-        function addScanLog(entry) { scanLogs.unshift({ ...entry, occurredAt: new Date().toISOString() }); }
+        function isFirebaseConfigured() { return !!(firebaseConfig.apiKey && firebaseConfig.databaseURL); }
 
         const firebaseConfig = {
             apiKey: "AIzaSyD9qr8eJ1jzU-mC49-UPuYf8fO1LTV6QVY",
@@ -315,207 +99,19 @@
             measurementId: "G-FYR72EMJRP"
         };
 
-        function isFirebaseConfigured() {
-            return firebaseConfig.apiKey && firebaseConfig.databaseURL;
-        }
+        function getMonthKey(date = new Date()) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; }
+        function getUpcomingMonthKey() { const date = new Date(); date.setMonth(date.getMonth() + 1, 1); return getMonthKey(date); }
+        function formatMealMonth(monthKey) { const [year, month] = monthKey.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)); }
+        function isStudentEnrolled(student) { return student.enrolled !== false; }
+        function getPaidPayment(studentId, mealMonth) { return payments.find(payment => payment.studentId === studentId && payment.mealMonth === mealMonth && payment.status === 'PAID'); }
 
-        function syncCloudData() {
-            if (!firebaseDatabase) return;
-            if (!cloudDataReady) {
-                // Refuse to write until we know what's actually in the cloud.
-                // Writing early would push this device's possibly-stale local
-                // copy over the top of the real cloud data.
-                console.warn('Skipped cloud sync: still waiting for the initial load from Firebase.');
-                return;
-            }
-
-            firebaseDatabase.ref('mcleods-canteen').update({
-                grades,
-                divisions,
-                students,
-                teachers,
-                payments,
-                paymentDeadlineDay,
-                dailyTracker,
-                dailyTrackerDate,
-                monthlyResetMonth,
-                scanLogs,
-                updatedAt: new Date().toISOString()
-            }).catch(error => console.error('Firebase sync failed:', error));
-        }
-
-        function loadCloudData() {
-            if (!isFirebaseConfigured()) {
-                console.info('Firebase is not configured. Using this browser\'s local storage.');
-                cloudDataReady = true;
-                refreshUI();
-                switchView('scanner');
-                return;
-            }
-
-            try {
-                firebase.initializeApp(firebaseConfig);
-                firebaseDatabase = firebase.database();
-                firebaseDatabase.ref('mcleods-canteen').once('value').then(snapshot => {
-                    const cloudData = snapshot.val();
-                    if (cloudData) {
-                        grades = Array.isArray(cloudData.grades) ? cloudData.grades : grades;
-                        divisions = Array.isArray(cloudData.divisions) ? cloudData.divisions : divisions;
-                        students = Array.isArray(cloudData.students) ? cloudData.students : students;
-                        teachers = Array.isArray(cloudData.teachers) ? cloudData.teachers : teachers;
-                        payments = Array.isArray(cloudData.payments) ? cloudData.payments : payments;
-                        paymentDeadlineDay = Number(cloudData.paymentDeadlineDay) || paymentDeadlineDay;
-                        dailyTracker = cloudData.dailyTracker || {};
-                        dailyTrackerDate = cloudData.dailyTrackerDate || dailyTrackerDate;
-                        monthlyResetMonth = cloudData.monthlyResetMonth || monthlyResetMonth;
-                        scanLogs = Array.isArray(cloudData.scanLogs) ? cloudData.scanLogs : [];
-                        cloudDataReady = true;
-                    } else {
-                        // Nothing in the cloud yet - it's safe to seed it from local data.
-                        cloudDataReady = true;
-                        syncCloudData();
-                    }
-                    runAutomaticResets();
-                    refreshUI();
-                    switchView('scanner');
-                    firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
-                        const latestData = latestSnapshot.val();
-                        if (!latestData) return;
-                        grades = Array.isArray(latestData.grades) ? latestData.grades : grades;
-                        divisions = Array.isArray(latestData.divisions) ? latestData.divisions : divisions;
-                        students = Array.isArray(latestData.students) ? latestData.students : students;
-                        teachers = Array.isArray(latestData.teachers) ? latestData.teachers : teachers;
-                        payments = Array.isArray(latestData.payments) ? latestData.payments : payments;
-                        paymentDeadlineDay = Number(latestData.paymentDeadlineDay) || paymentDeadlineDay;
-                        dailyTracker = latestData.dailyTracker || dailyTracker;
-                        dailyTrackerDate = latestData.dailyTrackerDate || dailyTrackerDate;
-                        monthlyResetMonth = latestData.monthlyResetMonth || monthlyResetMonth;
-                        scanLogs = Array.isArray(latestData.scanLogs) ? latestData.scanLogs : scanLogs;
-                        runAutomaticResets();
-                        refreshUI();
-                    });
-                }).catch(error => {
-                    console.error('Firebase loading failed:', error);
-                    // We couldn't confirm the cloud state, so treat this device's
-                    // local copy as the only source of truth for now rather than
-                    // silently blocking every save.
-                    cloudDataReady = true;
-                    refreshUI();
-                    switchView('scanner');
-                });
-            } catch (error) {
-                console.error('Firebase setup failed:', error);
-                cloudDataReady = true;
-                refreshUI();
-                switchView('scanner');
-            }
-        }
-
-        function saveAppData() {
-            localStorage.setItem('ecocanteen_grades', JSON.stringify(grades));
-            localStorage.setItem('ecocanteen_divisions', JSON.stringify(divisions));
-            localStorage.setItem('ecocanteen_students', JSON.stringify(students));
-            localStorage.setItem('ecocanteen_teachers', JSON.stringify(teachers));
-            localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
-            localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
-            localStorage.setItem('ecocanteen_tracker', JSON.stringify(dailyTracker));
-            localStorage.setItem('ecocanteen_tracker_date', dailyTrackerDate);
-            localStorage.setItem('ecocanteen_monthly_reset_month', monthlyResetMonth);
-            localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs));
-            refreshUI();
-            syncCloudData();
-        }
-
-        function getMonthKey(date = new Date()) {
-            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        }
-
-        function getDayKey(date = new Date()) {
-            return `${getMonthKey(date)}-${String(date.getDate()).padStart(2, '0')}`;
-        }
-
-        function runAutomaticResets() {
-            removeExpiredClosedAccounts();
-            const today = getDayKey();
-            let dataChanged = false;
-
-            // Payment access is now based on each payment's actual payment date and
-            // one-month expiry date. Do NOT pause every student at the start of a
-            // calendar month; a payment can remain valid across month boundaries.
-            students.forEach(student => {
-                if (!isStudentEnrolled(student)) return;
-                const activePayment = getLatestValidPayment(student.id, new Date());
-                const shouldBeExpired = !activePayment;
-                if (student.paymentExpired !== shouldBeExpired) {
-                    student.paymentExpired = shouldBeExpired;
-                    dataChanged = true;
-                }
-            });
-
-            if (dailyTrackerDate !== today) {
-                dailyTrackerDate = today;
-                dailyTracker = {};
-                dataChanged = true;
-            }
-            if (dataChanged) saveAppData();
-        }
-
-        function scheduleAutomaticResets() {
-            const now = new Date();
-            const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1);
-            setTimeout(() => {
-                runAutomaticResets();
-                scheduleAutomaticResets();
-            }, nextMidnight - now);
-        }
-
-        function getUpcomingMonthKey() {
-            const nextMonth = new Date();
-            nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
-            return getMonthKey(nextMonth);
-        }
-
-        function removeExpiredClosedAccounts() {
-            const deletionDelay = 5 * 60 * 1000;
-            const now = Date.now();
-            const remainingStudents = students.filter(student => student.enrolled !== false || !student.closedAt || now - student.closedAt < deletionDelay);
-            const remainingTeachers = teachers.filter(teacher => teacher.enrolled !== false || !teacher.closedAt || now - teacher.closedAt < deletionDelay);
-            if (remainingStudents.length === students.length && remainingTeachers.length === teachers.length) return;
-            students = remainingStudents;
-            teachers = remainingTeachers;
-            saveAppData();
-        }
-
-        function scheduleClosedAccountCleanup() { setInterval(removeExpiredClosedAccounts, 60 * 1000); }
-
-        function formatMealMonth(monthKey) {
-            const [year, month] = monthKey.split('-').map(Number);
-            return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1));
-        }
-
-        function isStudentEnrolled(student) {
-            return student.enrolled !== false;
-        }
-
-        function getPaidPayment(studentId, mealMonth) {
-            return payments.find(payment => payment.studentId === studentId && payment.mealMonth === mealMonth && payment.status === 'PAID');
-        }
-
-        // Payment validity is determined by the real payment date, not by a fixed
-        // monthly deadline. A payment made on 11/09/2026 is valid from that date
-        // until 11/10/2026 (expiry starts at 00:00 on 11/10/2026).
         function parsePaymentDate(value) {
             if (!value) return null;
-            if (value instanceof Date && !Number.isNaN(value.getTime())) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
             const match = String(value).trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
             if (!match) return null;
-            const day = Number(match[1]);
-            const month = Number(match[2]);
-            const year = Number(match[3]);
+            const day = Number(match[1]), month = Number(match[2]), year = Number(match[3]);
             const date = new Date(year, month - 1, day);
-            return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
-                ? new Date(year, month - 1, day)
-                : null;
+            return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? new Date(year, month - 1, day) : null;
         }
 
         function calculatePaymentExpiryDate(paymentDate) {
@@ -527,564 +123,198 @@
             return new Date(targetYear, targetMonth, Math.min(date.getDate(), lastDay));
         }
 
-        function formatDateForStorage(date) {
-            if (!date || Number.isNaN(date.getTime())) return '';
-            return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
-        }
-
-        function getPaymentExpiryDate(payment) {
-            if (!payment || payment.status !== 'PAID') return null;
-            return parsePaymentDate(payment.expiryDate) || calculatePaymentExpiryDate(payment.paymentDate);
-        }
-
+        function getPaymentExpiryDate(payment) { return payment?.expiryDate ? parsePaymentDate(payment.expiryDate) : calculatePaymentExpiryDate(payment?.paymentDate); }
+        function formatDateForStorage(date) { return date ? `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}` : ''; }
         function getLatestValidPayment(studentId, now = new Date()) {
             const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            return payments
-                .filter(payment => payment.studentId === studentId && payment.status === 'PAID')
-                .map(payment => ({ payment, paidOn: parsePaymentDate(payment.paymentDate), expiresOn: getPaymentExpiryDate(payment) }))
-                .filter(item => item.paidOn && item.expiresOn && today >= item.paidOn && today < item.expiresOn)
-                .sort((a, b) => b.paidOn - a.paidOn)[0]?.payment || null;
+            return payments.filter(p => p.studentId === studentId && p.status === 'PAID').map(payment => ({ payment, paidOn: parsePaymentDate(payment.paymentDate), expiresOn: getPaymentExpiryDate(payment) })).filter(item => item.paidOn && item.expiresOn && today >= item.paidOn && today < item.expiresOn).sort((a,b) => b.paidOn - a.paidOn)[0]?.payment || null;
         }
-
         function getLatestPayment(studentId) {
-            return payments
-                .filter(payment => payment.studentId === studentId && payment.status === 'PAID')
-                .map(payment => ({ payment, paidOn: parsePaymentDate(payment.paymentDate) }))
-                .filter(item => item.paidOn)
-                .sort((a, b) => b.paidOn - a.paidOn)[0]?.payment || null;
+            return payments.filter(p => p.studentId === studentId && p.status === 'PAID').map(payment => ({ payment, paidOn: parsePaymentDate(payment.paymentDate) })).filter(item => item.paidOn).sort((a,b) => b.paidOn - a.paidOn)[0]?.payment || null;
+        }
+        function getAccountStatus(student) {
+            if (!isStudentEnrolled(student)) return 'CLOSED';
+            if (student.paymentPaused === true) return 'PAUSED';
+            if (getLatestValidPayment(student.id, new Date())) return 'ACTIVE';
+            return getLatestPayment(student.id) ? 'EXPIRED' : 'PAYMENT DUE';
+        }
+        function getStatusBadgeClass(status) { if (status === 'ACTIVE' || status === 'PAID') return 'bg-[#d8e2dc] text-[#2d4a3e]'; if (status === 'CLOSED') return 'bg-gray-200 text-gray-700'; if (status === 'PAUSED' || status === 'EXPIRED') return 'bg-red-100 text-red-800'; return 'bg-amber-100 text-amber-900'; }
+
+        function persist() {
+            localStorage.setItem('ecocanteen_students', JSON.stringify(students));
+            localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
+            localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
+            if (firebaseDatabase && cloudDataReady) firebaseDatabase.ref('mcleods-canteen').update({ students, payments, paymentDeadlineDay }).catch(error => console.error('Firebase sync failed:', error));
+            render();
         }
 
-        function isPaymentExpired(student) {
-            return !getLatestValidPayment(student.id, new Date());
+        function removeExpiredClosedAccounts() {
+            const deletionDelay = 5 * 60 * 1000;
+            const now = Date.now();
+            const remainingStudents = students.filter(student => student.enrolled !== false || !student.closedAt || now - student.closedAt < deletionDelay);
+            if (remainingStudents.length === students.length) return;
+            students = remainingStudents;
+            persist();
         }
 
-        function isFeePaused(student) {
-            return student.paymentPaused === true;
+        function loadData() {
+            try {
+                firebase.initializeApp(firebaseConfig);
+                firebaseDatabase = firebase.database();
+                firebaseDatabase.ref('mcleods-canteen').once('value').then(snapshot => {
+                    const data = snapshot.val();
+                    if (data) {
+                        students = Array.isArray(data.students) ? data.students : students;
+                        payments = Array.isArray(data.payments) ? data.payments : payments;
+                        paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
+                    }
+                    cloudDataReady = true;
+                    removeExpiredClosedAccounts();
+                    render();
+                    firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
+                        const latestData = latestSnapshot.val();
+                        if (!latestData) return;
+                        students = Array.isArray(latestData.students) ? latestData.students : students;
+                        payments = Array.isArray(latestData.payments) ? latestData.payments : payments;
+                        paymentDeadlineDay = Number(latestData.paymentDeadlineDay) || paymentDeadlineDay;
+                        render();
+                    });
+                }).catch(() => { cloudDataReady = true; render(); });
+            } catch { cloudDataReady = true; render(); }
         }
 
-        function isTeacherEnrolled(teacher) {
-            return teacher.enrolled !== false;
+        function login() {
+            const username = document.getElementById('admin-user').value;
+            const password = document.getElementById('admin-pass').value;
+            if (username !== 'admin' || password !== 'canteen123') { alert('Invalid credentials!'); return; }
+            currentAdminName = username;
+            sessionStorage.setItem('ecocanteen_admin_session', 'true');
+            sessionStorage.setItem('ecocanteen_admin_name', currentAdminName);
+            showApp();
         }
 
-        function isTeacherPaused(teacher) {
-            return teacher.accountPaused === true;
-        }
-
-        // --- Grade-based breakfast eligibility --------------------------------------
-        // Grades are stored as free-text strings (they come from the editable Grades
-        // list managed in the admin panel via addGrade(), e.g. "Grade 1", "grade 3",
-        // or just "3"). This pulls the first number out of whatever was typed so the
-        // breakfast rule works no matter which format was used for a given record.
-        // Returns null if no number can be found, so callers can fail safe instead of
-        // guessing a grade.
-        function getNumericGrade(gradeValue) {
-            if (gradeValue === null || gradeValue === undefined) return null;
-            const match = String(gradeValue).match(/\d+/);
-            if (!match) return null;
-            const num = parseInt(match[0], 10);
-            return Number.isFinite(num) ? num : null;
-        }
-
-        // Single source of truth for the breakfast rule: Grade 1 and Grade 2 only.
-        // Grade 3 and above - and any student whose grade can't be confidently parsed -
-        // are not eligible for breakfast (they can still claim the other meals as
-        // normal). This rule applies to students only; teachers are not graded and
-        // are unaffected.
-        function isBreakfastAvailableForStudent(student) {
-            const grade = getNumericGrade(student && student.grade);
-            if (grade === null) return false; // Unknown/unparseable grade - fail safe, no breakfast.
-            return grade === 1 || grade === 2;
-        }
-
-        // --- Per-meal daily tracking --------------------------------------------------
-        // Each of the five meal categories (Breakfast, Mid-Morning, Lunch, Mid-Evening,
-        // Dinner) is tracked independently per person per day, keyed by a normalised
-        // version of the category name (e.g. "Mid-Morning" -> "mid_morning"). Claiming
-        // one meal never affects the availability of any other meal. This works for any
-        // category string, so adding/renaming meals in future only means updating the
-        // dropdown - no tracker changes are needed. Old records that only have
-        // {breakfast, lunch} boolean fields (from before this update) remain untouched
-        // and compatible; new meal keys are simply added alongside them.
-        function getMealTrackerKey(category) {
-            return String(category || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'meal';
-        }
-
-        function switchView(viewName) {
-            currentView = viewName;
-            document.getElementById('view-scanner').classList.add('hidden');
-            document.getElementById('view-admin-login').classList.add('hidden');
-            document.getElementById('view-admin-dashboard').classList.add('hidden');
-            stopScanner();
-
-            if (viewName === 'scanner') {
-                document.getElementById('view-scanner').classList.remove('hidden');
-                initScanner();
-            } else if (viewName === 'login') {
-                document.getElementById('view-admin-login').classList.remove('hidden');
-            } else if (viewName === 'dashboard') {
-                document.getElementById('view-admin-dashboard').classList.remove('hidden');
-            }
-            updateNavigation();
-        }
-
-        function updateNavigation() {
-            const scannerButton = document.getElementById('scanner-nav-button');
-            const dashboardButton = document.getElementById('dashboard-nav-button');
-
-            scannerButton.classList.toggle('hidden', !isAdminLoggedIn || currentView !== 'dashboard');
-            dashboardButton.textContent = isAdminLoggedIn ? 'Admin Dashboard' : 'Admin Login';
-            dashboardButton.classList.add('admin-login-subtle');
-        }
-
-        function checkAdminAccess() {
-            if (isAdminLoggedIn) switchView('dashboard');
-            else switchView('login');
-        }
-
-        function processAdminLogin() {
-            const u = document.getElementById('admin-user').value;
-            const p = document.getElementById('admin-pass').value;
-            if (u === 'admin' && p === 'canteen123') {
-                isAdminLoggedIn = true;
-                currentAdminName = u;
-                sessionStorage.setItem('ecocanteen_admin_session', 'true');
-                sessionStorage.setItem('ecocanteen_admin_name', currentAdminName);
-                document.getElementById('admin-pass').value = '';
-                refreshUI();
-                switchView('dashboard');
-            } else {
-                alert('Invalid credentials!');
-            }
-        }
-
-        function adminLogout() {
-            isAdminLoggedIn = false;
-            currentAdminName = '';
+        function logout() {
             sessionStorage.removeItem('ecocanteen_admin_session');
             sessionStorage.removeItem('ecocanteen_admin_name');
-            switchView('scanner');
+            currentAdminName = '';
+            document.getElementById('payment-app').classList.add('hidden');
+            document.getElementById('payment-login').classList.remove('hidden');
         }
 
-        function addGrade() {
+        function showApp() {
+            document.getElementById('payment-login').classList.add('hidden');
+            document.getElementById('payment-app').classList.remove('hidden');
+            loadData();
+        }
+
+        function openPaymentForStudent(id) { document.getElementById('payment-student').value = id; document.getElementById('payment-meal-month').value = getUpcomingMonthKey(); document.getElementById('payment-date').focus(); }
+
+        function normalisePaymentDate(value) {
+            const raw = value.trim();
+            if (!raw) return null;
+
+            // Native <input type="date"> returns YYYY-MM-DD.
+            const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (isoMatch) {
+                const [, year, month, day] = isoMatch.map(Number);
+                const date = new Date(year, month - 1, day);
+                if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+                return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+            }
+
+            // Backward compatibility with any old dd/mm/yyyy values.
+            const match = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            if (!match) return null;
+            const [, day, month, year] = match.map(Number);
+            const date = new Date(year, month - 1, day);
+            if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+            return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+        }
+
+        function markPaymentAsPaid() {
             if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
-            const val = document.getElementById('new-grade-input').value.trim();
-            if (val && !grades.includes(val)) {
-                grades.push(val);
-                document.getElementById('new-grade-input').value = '';
-                saveAppData();
-            }
-        }
-
-        function addDivision() {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
-            const val = document.getElementById('new-div-input').value.trim();
-            if (val && !divisions.includes(val)) {
-                divisions.push(val);
-                document.getElementById('new-div-input').value = '';
-                saveAppData();
-            }
-        }
-
-        function registerStudent() {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
-            const name = document.getElementById('reg-name').value.trim();
-            const grade = document.getElementById('reg-grade').value;
-            const division = document.getElementById('reg-division').value;
-            if (!name) { alert('Enter student name.'); return; }
-            
-            const uniqueId = 'MC-' + Math.floor(100000 + Math.random() * 900000);
-            students.push({ id: uniqueId, name, grade, division, enrolled: true });
-            document.getElementById('reg-name').value = '';
-            saveAppData();
-            alert('Student added successfully!');
-        }
-
-        function registerTeacher() {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
-            const name = document.getElementById('reg-teacher-name').value.trim();
-            if (!name) { alert('Enter teacher name.'); return; }
-
-            const uniqueId = 'TEA-' + Math.floor(100000 + Math.random() * 900000);
-            teachers.push({ id: uniqueId, name, enrolled: true, accountPaused: false });
-            document.getElementById('reg-teacher-name').value = '';
-            saveAppData();
-            alert('Teacher added successfully!');
-        }
-
-        // --- Identification abstraction ---------------------------------------------
-        // Every identification method (QR camera, manual ID entry, and in future a
-        // fingerprint scanner or face recognition) ends up here with just a person ID
-        // and a method label. From this point on, identification is done: everything
-        // below is the SAME existing account/payment/meal validation regardless of how
-        // the ID was obtained. Adding a new identification method later only means
-        // calling handleScanResult(id, 'fingerprint') or handleScanResult(id, 'face')
-        // from that method's code - none of the validation below needs to change.
-
-        function showScanResult(type, title, message) {
-            const modal = document.getElementById('scan-result-modal');
-            const card = document.getElementById('scan-result-card');
-            const icon = document.getElementById('scan-result-icon');
-            document.getElementById('scan-result-title').textContent = title;
-            document.getElementById('scan-result-message').innerHTML = message;
-            card.className = `scan-result-card ${type}`;
-            icon.textContent = type === 'accepted' ? '✅' : type === 'warning' ? '⚠️' : '❌';
-            modal.classList.add('show');
-            modal.setAttribute('aria-hidden', 'false');
-        }
-
-        function closeScanResult() {
-            const modal = document.getElementById('scan-result-modal');
-            modal.classList.remove('show');
-            modal.setAttribute('aria-hidden', 'true');
-        }
-
-        function handleScanResult(code, method = 'qr') {
-            // QR readers report the same code repeatedly while it remains in view.
-            // Keep the five-second cooldown silent so only one scan is processed.
-            if (scanLocked) return;
-            scanLocked = true;
-            setTimeout(() => { scanLocked = false; }, 5000);
-
-            runAutomaticResets();
-            const category = document.getElementById('active-meal-category').value;
-            const feedbackEl = document.getElementById('scan-feedback');
-            const student = students.find(s => s.id === code);
-            const teacher = teachers.find(t => t.id === code);
-            const person = student || teacher;
-            const timeStr = new Date().toLocaleTimeString();
-
-            if (!person) {
-                feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                feedbackEl.innerHTML = `⚠️ UNKNOWN ID: "${code}" is not found.`;
-                showScanResult('rejected', 'REJECTED', `Unknown ID: <b>${code}</b> was not found in the system.`);
-                return;
-            }
-
-            if (student) {
-                if (!isStudentEnrolled(person)) {
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-gray-200 text-gray-700 border border-gray-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `⛔ ACCOUNT CLOSED: ${person.name}'s canteen account is no longer active.`;
-                    showScanResult('rejected', 'REJECTED', `<b>${person.name}</b> — account is closed.`);
-                    return;
-                }
-                if (isFeePaused(person)) {
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${person.name}'s canteen access is manually paused until it is unpaused.`;
-                    showScanResult('rejected', 'REJECTED', `<b>${person.name}</b> — account is manually paused.`);
-                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Account Paused)' });
-                    saveAppData();
-                    return;
-                }
-                const activePayment = getLatestValidPayment(person.id, new Date());
-                if (!activePayment) {
-                    const latestPayment = getLatestPayment(person.id);
-                    const expiryDate = latestPayment ? getPaymentExpiryDate(latestPayment) : null;
-                    const expiryText = expiryDate ? formatDateForStorage(expiryDate) : '';
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = expiryText
-                        ? `⛔ ACCOUNT EXPIRED: ${person.name}'s meal payment expired on <b>${expiryText}</b>. Record a new payment to reactivate the account.`
-                        : `💳 PAYMENT REQUIRED: ${person.name} does not have an active meal payment. Record a payment to activate the account.`;
-                    showScanResult('rejected', 'REJECTED', expiryText
-                        ? `<b>${person.name}</b> — payment expired on <b>${expiryText}</b>.`
-                        : `<b>${person.name}</b> — payment is required.`);
-                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: expiryText ? 'Rejected (Payment Expired)' : 'Rejected (Payment Required)' });
-                    saveAppData();
-                    return;
-                }
-                if (person.paymentExpired) {
-                    person.paymentExpired = false;
-                    saveAppData();
-                }
-                // Meal eligibility check (grade-based). Must run BEFORE the daily
-                // duplicate check below, so an ineligible breakfast attempt never
-                // marks breakfast as claimed for the day. Lunch is unaffected.
-                if (category === 'Breakfast' && !isBreakfastAvailableForStudent(person)) {
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `🍳 BREAKFAST NOT AVAILABLE: Breakfast is only available for Grades 1 and 2. ${person.name} is in ${person.grade}.`;
-                    showScanResult('rejected', 'REJECTED', `<b>${person.name}</b> — breakfast is only available for Grades 1 and 2.`);
-                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Breakfast Not Available)' });
-                    saveAppData();
-                    return;
-                }
-            }
-
-            if (teacher) {
-                if (!isTeacherEnrolled(teacher)) {
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-gray-200 text-gray-700 border border-gray-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `⛔ ACCOUNT CLOSED: ${teacher.name}'s canteen account is no longer active.`;
-                    showScanResult('rejected', 'REJECTED', `<b>${teacher.name}</b> — account is closed.`);
-                    addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, method, status: 'Rejected (Account Closed)' });
-                    saveAppData();
-                    return;
-                }
-                if (isTeacherPaused(teacher)) {
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${teacher.name}'s canteen access is paused.`;
-                    showScanResult('rejected', 'REJECTED', `<b>${teacher.name}</b> — account is paused.`);
-                    addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, method, status: 'Rejected (Account Paused)' });
-                    saveAppData();
-                    return;
-                }
-                // Note: the Grade 1/2 breakfast restriction applies to students only.
-                // Teachers are not graded and keep their existing, unrestricted
-                // breakfast/lunch access - unchanged from before this update.
-            }
-
-            const classGroup = student ? `${student.grade} / ${student.division}` : 'Teacher';
-            if (!dailyTracker[person.id]) dailyTracker[person.id] = {};
-            const mealKey = getMealTrackerKey(category);
-            let claimed = dailyTracker[person.id][mealKey] === true;
-
-            if (claimed) {
-                feedbackEl.className = "mt-4 p-4 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 font-bold block text-sm";
-                feedbackEl.innerHTML = `❌ REJECTED: ${person.name} (${classGroup}) already claimed <b>${category}</b> today!`;
-                showScanResult('rejected', 'REJECTED', `<b>${person.name}</b> already claimed <b>${category}</b> today.`);
-                addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Rejected (Duplicate)' });
-            } else {
-                dailyTracker[person.id][mealKey] = true;
-
-                feedbackEl.className = "mt-4 p-4 rounded-xl bg-[#d8e2dc] text-[#2d4a3e] border border-[#b2c4bc] font-bold block text-sm";
-                feedbackEl.innerHTML = `✅ SUCCESS: ${category} recorded for <b>${person.name}</b> [${classGroup}]`;
-                showScanResult('accepted', 'ACCEPTED', `<b>${person.name}</b> — ${category} recorded successfully.`);
-                addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Success' });
-            }
-            saveAppData();
-        }
-
-        function processManualScan() {
-            const inputVal = document.getElementById('manual-id-input').value.trim();
-            if (inputVal) {
-                handleScanResult(inputVal, 'manual');
-                document.getElementById('manual-id-input').value = '';
-            }
-        }
-
-        async function initScanner() {
-            if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-            const config = { fps: 10, qrbox: { width: 220, height: 220 } };
-            const onSuccess = (decodedText) => handleScanResult(decodedText, 'qr');
-            const onError = () => {};
-
-            try {
-                // Prefer the front/selfie camera on devices with multiple cameras.
-                // This also works on a single-camera device when the browser exposes
-                // that camera as the user-facing camera.
-                await html5QrCode.start({ facingMode: { exact: "user" } }, config, onSuccess, onError);
-            } catch (frontError) {
-                try {
-                    // Automatic fallback: enumerate available cameras and use the
-                    // front-looking camera when identifiable, otherwise use the first
-                    // available camera. No manual camera picker is required.
-                    const cameras = await Html5Qrcode.getCameras();
-                    if (!cameras || !cameras.length) throw frontError;
-                    const frontCamera = cameras.find(camera => /front|user|facetime|selfie/i.test(camera.label || ''));
-                    await html5QrCode.start((frontCamera || cameras[0]).id, config, onSuccess, onError);
-                } catch (fallbackError) {
-                    console.log("Camera inactive or blocked", fallbackError);
-                }
-            }
-        }
-
-        // --- Future biometric identification (NOT implemented) -----------------------
-        // These are intentionally inert placeholders so the identification/validation
-        // split above is easy to extend later. Neither function talks to any hardware,
-        // model, or biometric storage - there is currently no fingerprint scanner or
-        // face-recognition capability in this application. When that hardware/library
-        // is actually integrated, each function should resolve a person's existing
-        // student/teacher ID and then call handleScanResult(id, 'fingerprint') /
-        // handleScanResult(id, 'face') - reusing all of the validation above unchanged.
-        function identifyWithFingerprint() {
-            console.info('Fingerprint identification is not implemented yet.');
-        }
-        function identifyWithFace() {
-            console.info('Face recognition is not implemented yet.');
-        }
-
-
-
-        function stopScanner() {
-            if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().catch(err => {});
-            }
-        }
-
-        function refreshUI() {
-            // Show a banner and disable data-entry while we still don't know
-            // what's actually saved in the cloud (see cloudDataReady).
-            const syncBanner = document.getElementById('cloud-sync-banner');
-            const stillLoading = isFirebaseConfigured() && !cloudDataReady;
-            if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
-            ['reg-name', 'reg-grade', 'reg-division', 'reg-teacher-name', 'new-grade-input', 'new-div-input'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.disabled = stillLoading;
-            });
-            document.querySelectorAll('[onclick="registerStudent()"], [onclick="registerTeacher()"], [onclick="addGrade()"], [onclick="addDivision()"]').forEach(btn => { btn.disabled = stillLoading; btn.classList.toggle('opacity-50', stillLoading); btn.classList.toggle('cursor-not-allowed', stillLoading); });
-
-            // Populate Grade/Division Dropdowns
-            document.getElementById('reg-grade').innerHTML = grades.map(g => `<option value="${g}">${g}</option>`).join('');
-            document.getElementById('reg-division').innerHTML = divisions.map(d => `<option value="${d}">${d}</option>`).join('');
-
-            // Populate directories and printable ID cards
-            const tableBody = document.getElementById('student-table-body');
-            const teacherTableBody = document.getElementById('teacher-table-body');
-            const printCardsContainer = document.getElementById('printable-cards-container');
-
-            if (students.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>`;
-            } else {
-                tableBody.innerHTML = students.map(s => `
-                    <tr class="border-b border-gray-100">
-                        <td class="p-3"><div id="directory-student-qr-${s.id}"></div></td>
-                        <td class="p-3 font-semibold">${s.name}</td>
-                        <td class="p-3">${s.grade}</td>
-                        <td class="p-3">${s.division}</td>
-                        <td class="p-3 font-mono text-xs text-gray-500">${s.id}</td>
-                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('student', '${s.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isStudentEnrolled(s) ? `<button onclick="closeStudentAccount('${s.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<span class="text-xs font-semibold text-gray-500">Closed</span> <button onclick="deleteStudentPermanently('${s.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td>
-                    </tr>
-                `).join('');
-            }
-
-            if (teachers.length === 0) {
-                teacherTableBody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">No teachers registered yet.</td></tr>`;
-            } else {
-                teacherTableBody.innerHTML = teachers.map(t => `
-                    <tr class="border-b border-gray-100">
-                        <td class="p-3"><div id="directory-teacher-qr-${t.id}"></div></td>
-                        <td class="p-3 font-semibold">${t.name}</td>
-                        <td class="p-3 font-mono text-xs text-gray-500">${t.id}</td>
-                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('teacher', '${t.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isTeacherEnrolled(t) ? `${isTeacherPaused(t) ? `<button onclick="unpauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeTeacherAccount('${t.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<span class="text-xs font-semibold text-gray-500">Closed</span> <button onclick="deleteTeacherPermanently('${t.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td>
-                    </tr>
-                `).join('');
-            }
-
-            const printFilter = document.getElementById('badge-print-filter').value;
-            let printablePeople = [];
-            if (badgePrintIndividual) {
-                const list = badgePrintIndividual.type === 'teacher' ? teachers : students;
-                const person = list.find(p => p.id === badgePrintIndividual.id);
-                if (person) printablePeople = [{ ...person, type: badgePrintIndividual.type }];
-            } else {
-                if (printFilter === 'students' || printFilter === 'all') printablePeople.push(...students.map(s => ({ ...s, type: 'student' })));
-                if (printFilter === 'teachers' || printFilter === 'all') printablePeople.push(...teachers.map(t => ({ ...t, type: 'teacher' })));
-            }
-
-            printCardsContainer.innerHTML = printablePeople.length === 0 ?
-                `<p class="text-center text-gray-400 col-span-2">No badges to print.</p>` :
-                printablePeople.map(person => `
-                    <div class="print-card">
-                        <div class="badge-person-row">
-                            <div class="badge-qr" id="print-qr-${person.id}"></div>
-                            <div class="badge-person-details">
-                                <p><strong>Name:</strong> ${person.name}</p>
-                                <p><strong>Class:</strong> ${person.type === 'teacher' ? 'Teacher' : `${person.grade} — ${person.division}`}</p>
-                            </div>
-                        </div>
-                        <div class="badge-brand-row">
-                            <img class="badge-logo" src="Not needed/McLeod's English School LOGO.png" alt="McLEOD's English School logo">
-                            <p class="badge-title">Canteen Card</p>
-                        </div>
-                        <p class="badge-footer">Property of McLEOD's English School<br>if found please return to,<br>McLEOD's English School</p>
-                        <p class="badge-id">${person.id}</p>
-                    </div>
-                `).join('');
-
-            setTimeout(() => {
-                printablePeople.forEach(person => {
-                    const el = document.getElementById(`print-qr-${person.id}`);
-                    if (el && el.innerHTML === "") new QRCode(el, { text: person.id, width: 100, height: 100 });
-                });
-                students.forEach(student => {
-                    const el = document.getElementById(`directory-student-qr-${student.id}`);
-                    if (el && el.innerHTML === "") new QRCode(el, { text: student.id, width: 44, height: 44 });
-                });
-                teachers.forEach(teacher => {
-                    const el = document.getElementById(`directory-teacher-qr-${teacher.id}`);
-                    if (el && el.innerHTML === "") new QRCode(el, { text: teacher.id, width: 44, height: 44 });
-                });
-            }, 100);
-
-            // Populate Logs
-            const logsBody = document.getElementById('logs-table-body');
-            logsBody.innerHTML = scanLogs.length === 0 ? `<tr><td colspan="5" class="p-4 text-center text-gray-400">No scan activity logged yet.</td></tr>` :
-                scanLogs.map(l => `
-                    <tr class="border-b border-gray-100">
-                        <td class="p-3 font-mono text-xs text-gray-500">${l.time}</td>
-                        <td class="p-3 font-medium">${l.name}</td>
-                        <td class="p-3 text-xs">${l.classGroup}</td>
-                        <td class="p-3 text-xs">${l.category}</td>
-                        <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${l.status.includes('Success') ? 'bg-[#d8e2dc] text-[#2d4a3e]' : 'bg-red-100 text-red-800'}">${l.status}</span></td>
-                    </tr>
-                `).join('');
-
+            const studentId = document.getElementById('payment-student').value;
+            const mealMonth = document.getElementById('payment-meal-month').value;
+            const paymentDate = normalisePaymentDate(document.getElementById('payment-date').value);
+            const student = students.find(item => item.id === studentId);
+            if (!student || !isStudentEnrolled(student)) { alert('Select an enrolled student.'); return; }
+            if (!mealMonth || !paymentDate) { alert('Select the meal month and payment date.'); return; }
+            if (getPaidPayment(studentId, mealMonth)) { alert(`${formatMealMonth(mealMonth)} is already marked as paid for ${student.name}.`); return; }
+            const expiryDate = calculatePaymentExpiryDate(paymentDate);
+            if (!expiryDate) { alert('Could not calculate the payment expiry date.'); return; }
+            student.paymentPaused = false;
+            student.paymentExpired = false;
+            payments.unshift({ id: `PAY-${Date.now()}-${Math.floor(Math.random() * 1000)}`, studentId, studentName: student.name, mealMonth, paymentDate, expiryDate: formatDateForStorage(expiryDate), recordedAt: new Date().toLocaleString(), status: 'PAID' });
+            document.getElementById('payment-date').value = '';
+            persist();
+            alert(`${formatMealMonth(mealMonth)} payment marked as paid for ${student.name}.`);
         }
 
         function closeStudentAccount(id) {
-            const student = students.find(s => s.id === id);
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
+            const student = students.find(item => item.id === id);
             if (!student || !isStudentEnrolled(student)) return;
             if (!confirm(`Close ${student.name}'s canteen account? Their payment history will be preserved.`)) return;
             student.enrolled = false;
             student.closedAt = Date.now();
-            saveAppData();
+            persist();
         }
 
         function deleteStudentPermanently(id) {
-            const student = students.find(s => s.id === id);
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
+            const student = students.find(item => item.id === id);
             if (!student || isStudentEnrolled(student)) return;
             if (!confirm(`Permanently delete ${student.name}'s account? This cannot be undone.`)) return;
-            students = students.filter(s => s.id !== id);
-            saveAppData();
+            students = students.filter(item => item.id !== id);
+            persist();
         }
 
-        function pauseTeacherAccount(id) {
-            const teacher = teachers.find(t => t.id === id);
-            if (!teacher || !isTeacherEnrolled(teacher) || isTeacherPaused(teacher)) return;
-            if (!confirm(`Pause ${teacher.name}'s canteen account?`)) return;
-            teacher.accountPaused = true;
-            saveAppData();
+        function pauseStudentAccount(id) {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
+            const student = students.find(item => item.id === id);
+            if (!student || !isStudentEnrolled(student) || student.paymentPaused === true) return;
+            if (!confirm(`Pause ${student.name}'s canteen access until a meal fee is recorded as paid?`)) return;
+            student.paymentPaused = true;
+            persist();
         }
 
-        function unpauseTeacherAccount(id) {
-            const teacher = teachers.find(t => t.id === id);
-            if (!teacher || !isTeacherEnrolled(teacher) || !isTeacherPaused(teacher)) return;
-            if (!confirm(`Unpause ${teacher.name}'s canteen account?`)) return;
-            teacher.accountPaused = false;
-            saveAppData();
+        function unpauseStudentAccount(id) {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
+            const student = students.find(item => item.id === id);
+            if (!student || !isStudentEnrolled(student) || student.paymentPaused !== true) return;
+            if (!confirm(`Unpause ${student.name}'s canteen account? Their current month's payment is still required before meals can be claimed.`)) return;
+            student.paymentPaused = false;
+            persist();
         }
 
-        function closeTeacherAccount(id) {
-            const teacher = teachers.find(t => t.id === id);
-            if (!teacher || !isTeacherEnrolled(teacher)) return;
-            if (!confirm(`Close ${teacher.name}'s canteen account? Their scan history will be preserved.`)) return;
-            teacher.enrolled = false;
-            teacher.closedAt = Date.now();
-            saveAppData();
+        function render() {
+            const syncBanner = document.getElementById('cloud-sync-banner');
+            const stillLoading = isFirebaseConfigured() && !cloudDataReady;
+            if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
+            const completeBtn = document.querySelector('[onclick="markPaymentAsPaid()"]');
+            if (completeBtn) { completeBtn.disabled = stillLoading; completeBtn.classList.toggle('opacity-50', stillLoading); completeBtn.classList.toggle('cursor-not-allowed', stillLoading); }
+
+            const select = document.getElementById('payment-student');
+            const previousSelection = select.value;
+            const enrolledStudents = students.filter(isStudentEnrolled);
+            select.innerHTML = enrolledStudents.length ? enrolledStudents.map(student => `<option value="${student.id}">${student.name} (${student.id})</option>`).join('') : '<option value="">No enrolled students available</option>';
+            if (enrolledStudents.some(student => student.id === previousSelection)) select.value = previousSelection;
+            if (!document.getElementById('payment-meal-month').value) document.getElementById('payment-meal-month').value = getUpcomingMonthKey();
+            const upcoming = getUpcomingMonthKey();
+            document.getElementById('account-status-table-body').innerHTML = students.length ? students.map(student => {
+                const payment = getLatestValidPayment(student.id, new Date());
+                const latestPayment = getLatestPayment(student.id);
+                const status = getAccountStatus(student);
+                const expiryDate = latestPayment ? getPaymentExpiryDate(latestPayment) : null;
+                const expiryText = expiryDate ? formatDateForStorage(expiryDate) : '—';
+                return `<tr class="border-b border-gray-100"><td class="p-3 font-medium">${student.name}</td><td class="p-3 text-xs">${payment ? formatDateForStorage(getPaymentExpiryDate(payment)) : '—'}</td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(status === 'ACTIVE' ? 'PAID' : 'PAYMENT DUE')}">${payment ? 'ACTIVE PAYMENT' : 'NO ACTIVE PAYMENT'}</span></td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(status)}">${status}</span></td><td class="p-3 text-xs">${expiryText}</td><td class="p-3">${isStudentEnrolled(student) ? `<button onclick="openPaymentForStudent('${student.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Record Payment</button> ${student.paymentPaused ? `<button onclick="unpauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeStudentAccount('${student.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<button onclick="deleteStudentPermanently('${student.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td></tr>`;
+            }).join('') : '<tr><td colspan="6" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>';
+            document.getElementById('payment-audit-table-body').innerHTML = payments.length ? payments.map(payment => `<tr class="border-b border-gray-100"><td class="p-3 text-xs text-gray-500">${payment.paymentDate || 'Not recorded'}</td><td class="p-3 font-medium">${payment.studentName}</td><td class="p-3 text-xs">${formatMealMonth(payment.mealMonth)}</td></tr>`).join('') : '<tr><td colspan="3" class="p-4 text-center text-gray-400">No payments recorded yet.</td></tr>';
         }
 
-        function deleteTeacherPermanently(id) {
-            const teacher = teachers.find(t => t.id === id);
-            if (!teacher || isTeacherEnrolled(teacher)) return;
-            if (!confirm(`Permanently delete ${teacher.name}'s account? This cannot be undone.`)) return;
-            teachers = teachers.filter(t => t.id !== id);
-            saveAppData();
-        }
-
-        function printIndividualBadge(type, id) {
-            badgePrintIndividual = { type, id };
-            refreshUI();
-            setTimeout(() => window.print(), 150);
-        }
-
-        window.addEventListener('afterprint', () => {
-            if (badgePrintIndividual) {
-                badgePrintIndividual = null;
-                refreshUI();
-            }
-        });
-
-        loadCloudData();
-        runAutomaticResets();
-        scheduleAutomaticResets();
-        scheduleClosedAccountCleanup();
+        if (sessionStorage.getItem('ecocanteen_admin_session') === 'true') showApp();
+        else document.getElementById('payment-login').classList.remove('hidden');
+        setInterval(removeExpiredClosedAccounts, 60 * 1000);
     </script>
 </body>
 </html>
