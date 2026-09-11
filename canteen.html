@@ -83,8 +83,12 @@
                     <label class="block text-sm font-semibold mb-1">Select Meal Category:</label>
                     <select id="active-meal-category" class="w-full border border-gray-300 rounded-lg p-2.5 bg-[#f4f6f0] font-medium outline-none">
                         <option value="Breakfast">Breakfast</option>
+                        <option value="Mid-Morning">Mid-Morning</option>
                         <option value="Lunch">Lunch</option>
+                        <option value="Mid-Evening">Mid-Evening</option>
+                        <option value="Dinner">Dinner</option>
                     </select>
+                    <p class="text-xs text-gray-500 mt-1">Breakfast is only available for Grade 1 and Grade 2 students.</p>
                 </div>
 
                 <!-- Live Camera Feed Container -->
@@ -491,6 +495,45 @@
             return teacher.accountPaused === true;
         }
 
+        // --- Grade-based breakfast eligibility --------------------------------------
+        // Grades are stored as free-text strings (they come from the editable Grades
+        // list managed in the admin panel via addGrade(), e.g. "Grade 1", "grade 3",
+        // or just "3"). This pulls the first number out of whatever was typed so the
+        // breakfast rule works no matter which format was used for a given record.
+        // Returns null if no number can be found, so callers can fail safe instead of
+        // guessing a grade.
+        function getNumericGrade(gradeValue) {
+            if (gradeValue === null || gradeValue === undefined) return null;
+            const match = String(gradeValue).match(/\d+/);
+            if (!match) return null;
+            const num = parseInt(match[0], 10);
+            return Number.isFinite(num) ? num : null;
+        }
+
+        // Single source of truth for the breakfast rule: Grade 1 and Grade 2 only.
+        // Grade 3 and above - and any student whose grade can't be confidently parsed -
+        // are not eligible for breakfast (they can still claim the other meals as
+        // normal). This rule applies to students only; teachers are not graded and
+        // are unaffected.
+        function isBreakfastAvailableForStudent(student) {
+            const grade = getNumericGrade(student && student.grade);
+            if (grade === null) return false; // Unknown/unparseable grade - fail safe, no breakfast.
+            return grade === 1 || grade === 2;
+        }
+
+        // --- Per-meal daily tracking --------------------------------------------------
+        // Each of the five meal categories (Breakfast, Mid-Morning, Lunch, Mid-Evening,
+        // Dinner) is tracked independently per person per day, keyed by a normalised
+        // version of the category name (e.g. "Mid-Morning" -> "mid_morning"). Claiming
+        // one meal never affects the availability of any other meal. This works for any
+        // category string, so adding/renaming meals in future only means updating the
+        // dropdown - no tracker changes are needed. Old records that only have
+        // {breakfast, lunch} boolean fields (from before this update) remain untouched
+        // and compatible; new meal keys are simply added alongside them.
+        function getMealTrackerKey(category) {
+            return String(category || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'meal';
+        }
+
         function switchView(viewName) {
             currentView = viewName;
             document.getElementById('view-scanner').classList.add('hidden');
@@ -593,7 +636,15 @@
             alert('Teacher added successfully!');
         }
 
-        function handleScanResult(code) {
+        // --- Identification abstraction ---------------------------------------------
+        // Every identification method (QR camera, manual ID entry, and in future a
+        // fingerprint scanner or face recognition) ends up here with just a person ID
+        // and a method label. From this point on, identification is done: everything
+        // below is the SAME existing account/payment/meal validation regardless of how
+        // the ID was obtained. Adding a new identification method later only means
+        // calling handleScanResult(id, 'fingerprint') or handleScanResult(id, 'face')
+        // from that method's code - none of the validation below needs to change.
+        function handleScanResult(code, method = 'qr') {
             // QR readers report the same code repeatedly while it remains in view.
             // Keep the five-second cooldown silent so only one scan is processed.
             if (scanLocked) return;
@@ -623,7 +674,7 @@
                 if (isFeePaused(person)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${person.name}'s canteen access is paused until their meal fee is recorded as paid.`;
-                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, status: 'Rejected (Account Paused)' });
+                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Account Paused)' });
                     saveAppData();
                     return;
                 }
@@ -631,7 +682,17 @@
                 if (!getPaidPayment(person.id, currentMealMonth)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `💳 PAYMENT REQUIRED: ${person.name} has not paid for <b>${formatMealMonth(currentMealMonth)}</b> meals.`;
-                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, status: 'Rejected (Payment Required)' });
+                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Payment Required)' });
+                    saveAppData();
+                    return;
+                }
+                // Meal eligibility check (grade-based). Must run BEFORE the daily
+                // duplicate check below, so an ineligible breakfast attempt never
+                // marks breakfast as claimed for the day. Lunch is unaffected.
+                if (category === 'Breakfast' && !isBreakfastAvailableForStudent(person)) {
+                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
+                    feedbackEl.innerHTML = `🍳 BREAKFAST NOT AVAILABLE: Breakfast is only available for Grades 1 and 2. ${person.name} is in ${person.grade}.`;
+                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Breakfast Not Available)' });
                     saveAppData();
                     return;
                 }
@@ -641,34 +702,37 @@
                 if (!isTeacherEnrolled(teacher)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-gray-200 text-gray-700 border border-gray-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `⛔ ACCOUNT CLOSED: ${teacher.name}'s canteen account is no longer active.`;
-                    addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, status: 'Rejected (Account Closed)' });
+                    addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, method, status: 'Rejected (Account Closed)' });
                     saveAppData();
                     return;
                 }
                 if (isTeacherPaused(teacher)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${teacher.name}'s canteen access is paused.`;
-                    addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, status: 'Rejected (Account Paused)' });
+                    addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, method, status: 'Rejected (Account Paused)' });
                     saveAppData();
                     return;
                 }
+                // Note: the Grade 1/2 breakfast restriction applies to students only.
+                // Teachers are not graded and keep their existing, unrestricted
+                // breakfast/lunch access - unchanged from before this update.
             }
 
             const classGroup = student ? `${student.grade} / ${student.division}` : 'Teacher';
-            if (!dailyTracker[person.id]) dailyTracker[person.id] = { breakfast: false, lunch: false };
-            let claimed = category === 'Breakfast' ? dailyTracker[person.id].breakfast : dailyTracker[person.id].lunch;
+            if (!dailyTracker[person.id]) dailyTracker[person.id] = {};
+            const mealKey = getMealTrackerKey(category);
+            let claimed = dailyTracker[person.id][mealKey] === true;
 
             if (claimed) {
                 feedbackEl.className = "mt-4 p-4 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 font-bold block text-sm";
                 feedbackEl.innerHTML = `❌ REJECTED: ${person.name} (${classGroup}) already claimed <b>${category}</b> today!`;
-                addScanLog({ time: timeStr, name: person.name, classGroup, category, status: 'Rejected (Duplicate)' });
+                addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Rejected (Duplicate)' });
             } else {
-                if (category === 'Breakfast') dailyTracker[person.id].breakfast = true;
-                if (category === 'Lunch') dailyTracker[person.id].lunch = true;
+                dailyTracker[person.id][mealKey] = true;
 
                 feedbackEl.className = "mt-4 p-4 rounded-xl bg-[#d8e2dc] text-[#2d4a3e] border border-[#b2c4bc] font-bold block text-sm";
                 feedbackEl.innerHTML = `✅ SUCCESS: ${category} recorded for <b>${person.name}</b> [${classGroup}]`;
-                addScanLog({ time: timeStr, name: person.name, classGroup, category, status: 'Success' });
+                addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Success' });
             }
             saveAppData();
         }
@@ -676,7 +740,7 @@
         function processManualScan() {
             const inputVal = document.getElementById('manual-id-input').value.trim();
             if (inputVal) {
-                handleScanResult(inputVal);
+                handleScanResult(inputVal, 'manual');
                 document.getElementById('manual-id-input').value = '';
             }
         }
@@ -686,10 +750,27 @@
             html5QrCode.start(
                 { facingMode: "environment" },
                 { fps: 10, qrbox: { width: 220, height: 220 } },
-                (decodedText) => handleScanResult(decodedText),
+                (decodedText) => handleScanResult(decodedText, 'qr'),
                 (err) => {}
             ).catch(err => console.log("Camera inactive or blocked"));
         }
+
+        // --- Future biometric identification (NOT implemented) -----------------------
+        // These are intentionally inert placeholders so the identification/validation
+        // split above is easy to extend later. Neither function talks to any hardware,
+        // model, or biometric storage - there is currently no fingerprint scanner or
+        // face-recognition capability in this application. When that hardware/library
+        // is actually integrated, each function should resolve a person's existing
+        // student/teacher ID and then call handleScanResult(id, 'fingerprint') /
+        // handleScanResult(id, 'face') - reusing all of the validation above unchanged.
+        function identifyWithFingerprint() {
+            console.info('Fingerprint identification is not implemented yet.');
+        }
+        function identifyWithFace() {
+            console.info('Face recognition is not implemented yet.');
+        }
+
+
 
         function stopScanner() {
             if (html5QrCode && html5QrCode.isScanning) {
