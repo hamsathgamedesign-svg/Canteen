@@ -68,6 +68,16 @@
 </head>
 <body class="min-h-screen flex flex-col">
 
+    <!-- Scan Result Popup -->
+    <div id="scan-result-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="scan-result-title">
+        <div id="scan-result-card" class="scan-result-card rejected">
+            <div id="scan-result-icon" class="scan-result-icon">❌</div>
+            <div id="scan-result-title" class="scan-result-title">REJECTED</div>
+            <div id="scan-result-message" class="scan-result-message"></div>
+            <button type="button" class="scan-result-close" onclick="closeScanResult()">OK</button>
+        </div>
+    </div>
+
     <!-- Header Navigation -->
     <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
         <div class="flex items-center gap-2">
