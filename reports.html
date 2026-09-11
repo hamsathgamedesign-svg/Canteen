@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canteen Reports | McLEOD's English School</title>
+    <link rel="icon" type="image/png" href="Not needed/McLeod's English School LOGO.png">
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
+    <style>
+        /* McLEOD's English School watermark: sits above the page background but behind all content. */
+        body { position: relative; isolation: isolate; }
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            background-image: url("Not needed/McLeod's English School LOGO.png");
+            background-repeat: no-repeat;
+            background-position: center center;
+            background-size: min(72vw, 820px) auto;
+            opacity: 0.25;
+        }
+        body > * { position: relative; z-index: 1; }
+
+        body { background-color: #f4f6f0; color: #2d3732; }
+        .bg-matte-green { background-color: #2d4a3e; }
+        .text-matte-green { color: #2d4a3e; }
+        .btn-matte { background-color: #2d4a3e; color: #f4f6f0; }
+        .btn-matte:hover { background-color: #243c32; }
+        .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
+        @media print { header, .no-print { display: none !important; } body { background: white; } main { max-width: none !important; padding: 0 !important; } }
+    </style>
+</head>
+<body class="min-h-screen">
+    <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+            <span role="img" aria-label="McLEOD's English School logo" class="header-school-logo"></span>
+            <h1 class="text-xl font-bold tracking-wide">McLEOD's English School Canteen Monitor</h1>
+        </div>
+        <a href="canteen.html?view=admin" class="px-4 py-2 rounded bg-[#3c5f51] hover:bg-[#476f5f] transition font-medium text-sm">← Admin Dashboard</a>
+    </header>
+
+    <main class="max-w-6xl w-full mx-auto p-4 sm:p-6">
+        <section id="reports-login" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
+            <h2 class="text-xl font-bold text-matte-green mb-2">Reports Login</h2>
+            <p class="text-xs text-gray-500 mb-6">Only authorised staff can view canteen reports.</p>
+            <div class="space-y-4">
+                <input id="admin-user" type="text" placeholder="Username" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
+                <input id="admin-pass" type="password" placeholder="Password" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
+                <button onclick="login()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Login</button>
+            </div>
+        </section>
+
+        <section id="reports-app" class="hidden space-y-6">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white border border-[#d8e2dc] p-4 rounded-xl shadow-sm">
+                <div>
+                    <h2 class="text-lg font-bold text-matte-green">Canteen Scan Reports</h2>
+                    <p class="text-xs text-gray-500">Filter meal activity by number of days and by an individual student or teacher.</p>
+                </div>
+                <div class="flex gap-2 no-print">
+                    <button onclick="downloadCsv()" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Download CSV</button>
+                    <button onclick="window.print()" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Print</button>
+                    <button onclick="logout()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-200 transition">Log Out</button>
+                </div>
+            </div>
+
+            <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm no-print">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                    <label class="text-sm font-semibold text-gray-700">Last number of days
+                        <input id="days-filter" type="number" min="1" max="365" value="7" oninput="renderReport()" class="mt-1 w-full border border-gray-300 rounded-lg p-2.5 font-normal outline-none">
+                    </label>
+                    <label class="text-sm font-semibold text-gray-700">Student or teacher name
+                        <input id="person-filter" type="search" placeholder="All people" oninput="renderReport()" class="mt-1 w-full border border-gray-300 rounded-lg p-2.5 font-normal outline-none">
+                    </label>
+                    <button onclick="resetFilters()" class="border border-gray-300 text-gray-700 font-semibold p-2.5 rounded-lg hover:bg-gray-100 transition">Reset Filters</button>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm"><p class="text-xs text-gray-500">Total scans</p><p id="total-scans" class="text-3xl font-bold text-matte-green mt-1">0</p></div>
+                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm"><p class="text-xs text-gray-500">Meals served</p><p id="success-scans" class="text-3xl font-bold text-matte-green mt-1">0</p></div>
+                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm"><p class="text-xs text-gray-500">Rejected scans</p><p id="rejected-scans" class="text-3xl font-bold text-red-700 mt-1">0</p></div>
+            </div>
+
+            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm">
+                <div class="flex justify-between gap-3 items-center mb-4"><h3 class="text-md font-bold text-matte-green">Detailed Activity</h3><p id="report-range" class="text-xs text-gray-500"></p></div>
+                <p id="legacy-note" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">Some older scans have no date recorded, so they cannot be included in date-based reports.</p>
+                <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600"><th class="p-3">Date & Time</th><th class="p-3">Name</th><th class="p-3">Group</th><th class="p-3">Meal</th><th class="p-3">Result</th></tr></thead><tbody id="report-table" class="text-sm"></tbody></table></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        let scanLogs = JSON.parse(localStorage.getItem('ecocanteen_logs')) || [];
+        let firebaseDatabase = null;
+        let visibleLogs = [];
+        const firebaseConfig = {
+            apiKey: "AIzaSyD9qr8eJ1jzU-mC49-UPuYf8fO1LTV6QVY",
+            authDomain: "canteen-28c1e.firebaseapp.com",
+            databaseURL: "https://canteen-28c1e-default-rtdb.firebaseio.com",
+            projectId: "canteen-28c1e",
+            storageBucket: "canteen-28c1e.firebasestorage.app",
+            messagingSenderId: "849945519532",
+            appId: "1:849945519532:web:fd012de87be618cf324609",
+            measurementId: "G-FYR72EMJRP"
+        };
+
+        function login() {
+            if (document.getElementById('admin-user').value !== 'admin' || document.getElementById('admin-pass').value !== 'canteen123') { alert('Invalid credentials!'); return; }
+            sessionStorage.setItem('ecocanteen_admin_session', 'true');
+            document.getElementById('admin-pass').value = '';
+            showReports();
+        }
+        function logout() { sessionStorage.removeItem('ecocanteen_admin_session'); document.getElementById('reports-app').classList.add('hidden'); document.getElementById('reports-login').classList.remove('hidden'); }
+        function showReports() { document.getElementById('reports-login').classList.add('hidden'); document.getElementById('reports-app').classList.remove('hidden'); loadLogs(); }
+        function loadLogs() {
+            try {
+                firebase.initializeApp(firebaseConfig);
+                firebaseDatabase = firebase.database();
+                firebaseDatabase.ref('mcleods-canteen/scanLogs').on('value', snapshot => { scanLogs = Array.isArray(snapshot.val()) ? snapshot.val() : []; localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs)); renderReport(); });
+            } catch { renderReport(); }
+        }
+        function getFilteredLogs() {
+            const days = Math.max(1, Math.min(365, Number(document.getElementById('days-filter').value) || 7));
+            const query = document.getElementById('person-filter').value.trim().toLowerCase();
+            const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+            return scanLogs.filter(log => { const time = Date.parse(log.occurredAt); return Number.isFinite(time) && time >= cutoff && (!query || (log.name || '').toLowerCase().includes(query)); }).sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
+        }
+        function renderReport() {
+            if (document.getElementById('reports-app').classList.contains('hidden')) return;
+            visibleLogs = getFilteredLogs();
+            const successes = visibleLogs.filter(log => log.status === 'Success').length;
+            document.getElementById('total-scans').textContent = visibleLogs.length;
+            document.getElementById('success-scans').textContent = successes;
+            document.getElementById('rejected-scans').textContent = visibleLogs.length - successes;
+            const days = Math.max(1, Math.min(365, Number(document.getElementById('days-filter').value) || 7));
+            document.getElementById('report-range').textContent = `Last ${days} day${days === 1 ? '' : 's'} · ${visibleLogs.length} result${visibleLogs.length === 1 ? '' : 's'}`;
+            document.getElementById('legacy-note').classList.toggle('hidden', !scanLogs.some(log => !log.occurredAt));
+            document.getElementById('report-table').innerHTML = visibleLogs.length ? visibleLogs.map(log => `<tr class="border-b border-gray-100"><td class="p-3 text-xs text-gray-500">${new Date(log.occurredAt).toLocaleString('en-GB')}</td><td class="p-3 font-medium">${log.name || ''}</td><td class="p-3 text-xs">${log.classGroup || ''}</td><td class="p-3 text-xs">${log.category || ''}</td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${log.status === 'Success' ? 'bg-[#d8e2dc] text-[#2d4a3e]' : 'bg-red-100 text-red-800'}">${log.status || ''}</span></td></tr>`).join('') : '<tr><td colspan="5" class="p-5 text-center text-gray-400">No scans match these filters.</td></tr>';
+        }
+        function resetFilters() { document.getElementById('days-filter').value = 7; document.getElementById('person-filter').value = ''; renderReport(); }
+        function downloadCsv() {
+            const rows = [['Date and time', 'Name', 'Group', 'Meal', 'Result'], ...visibleLogs.map(log => [new Date(log.occurredAt).toLocaleString('en-GB'), log.name, log.classGroup, log.category, log.status])];
+            const csv = rows.map(row => row.map(value => `"${String(value || '').replaceAll('"', '""')}"`).join(',')).join('\n');
+            const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+            const link = document.createElement('a'); link.href = url; link.download = `canteen-report-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(url);
+        }
+        if (sessionStorage.getItem('ecocanteen_admin_session') === 'true') showReports(); else document.getElementById('reports-login').classList.remove('hidden');
+    </script>
+</body>
+</html>
