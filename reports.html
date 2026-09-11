@@ -23,7 +23,7 @@
             background-size: min(72vw, 820px) auto;
             opacity: 0.25;
         }
-        body > * { position: relative; z-index: 1; }
+        body > * { position: relative; z-index: auto; }
 
         body { background-color: #f4f6f0; color: #2d3732; }
         .bg-matte-green { background-color: #2d4a3e; }
@@ -33,7 +33,7 @@
         .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
         @media print { header, .no-print { display: none !important; } body { background: white; } main { max-width: none !important; padding: 0 !important; } }
     
-        /* 90% transparent logo overlay: intentionally sits above all UI while remaining non-interactive. */
+        /* 90% transparent logo watermark: behind website content, with the live camera/scanner above it. */
         body::after {
             content: "";
             position: fixed;
@@ -46,6 +46,9 @@
             background-size: min(72vw, 820px) auto;
             opacity: 0.10;
         }
+
+        /* Keep the live scanner/camera above the watermark. */
+        #reader { position: relative; z-index: 10001; }
 </style>
 </head>
 <body class="min-h-screen">

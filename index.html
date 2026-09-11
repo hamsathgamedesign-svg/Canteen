@@ -25,7 +25,7 @@
             background-size: min(72vw, 820px) auto;
             opacity: 0.25;
         }
-        body > * { position: relative; z-index: 1; }
+        body > * { position: relative; z-index: auto; }
 
         body { background-color: #f4f6f0; color: #2d3732; }
         .bg-matte-green { background-color: #2d4a3e; }
@@ -73,7 +73,7 @@
             .badge-footer { font-size: 10pt; }
         }
     
-        /* 90% transparent logo overlay: intentionally sits above all UI while remaining non-interactive. */
+        /* 90% transparent logo watermark: below all website content, with the live camera/scanner above it. */
         body::after {
             content: "";
             position: fixed;
@@ -86,6 +86,9 @@
             background-size: min(72vw, 820px) auto;
             opacity: 0.10;
         }
+
+        /* Keep only the live scanner/camera above the watermark. */
+        #reader { position: relative; z-index: 10001; }
 </style>
 <style>
 #scan-result-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:9999;padding:20px}
