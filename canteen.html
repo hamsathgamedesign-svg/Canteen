@@ -419,21 +419,21 @@
         function runAutomaticResets() {
             removeExpiredClosedAccounts();
             const today = getDayKey();
-            const thisMonth = getMonthKey();
             let dataChanged = false;
 
-            if (monthlyResetMonth !== thisMonth) {
-                monthlyResetMonth = thisMonth;
-                dailyTracker = {};
-                // A new meal month requires a payment for that month. Keep this
-                // status on the account so staff can see which accounts need action.
-                students.forEach(student => {
-                    if (isStudentEnrolled(student) && !getPaidPayment(student.id, thisMonth)) {
-                        student.paymentPaused = true;
-                    }
-                });
-                dataChanged = true;
-            }
+            // Payment access is now based on each payment's actual payment date and
+            // one-month expiry date. Do NOT pause every student at the start of a
+            // calendar month; a payment can remain valid across month boundaries.
+            students.forEach(student => {
+                if (!isStudentEnrolled(student)) return;
+                const activePayment = getLatestValidPayment(student.id, new Date());
+                const shouldBeExpired = !activePayment;
+                if (student.paymentExpired !== shouldBeExpired) {
+                    student.paymentExpired = shouldBeExpired;
+                    dataChanged = true;
+                }
+            });
+
             if (dailyTrackerDate !== today) {
                 dailyTrackerDate = today;
                 dailyTracker = {};
@@ -481,6 +481,63 @@
 
         function getPaidPayment(studentId, mealMonth) {
             return payments.find(payment => payment.studentId === studentId && payment.mealMonth === mealMonth && payment.status === 'PAID');
+        }
+
+        // Payment validity is determined by the real payment date, not by a fixed
+        // monthly deadline. A payment made on 11/09/2026 is valid from that date
+        // until 11/10/2026 (expiry starts at 00:00 on 11/10/2026).
+        function parsePaymentDate(value) {
+            if (!value) return null;
+            if (value instanceof Date && !Number.isNaN(value.getTime())) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+            const match = String(value).trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            if (!match) return null;
+            const day = Number(match[1]);
+            const month = Number(match[2]);
+            const year = Number(match[3]);
+            const date = new Date(year, month - 1, day);
+            return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+                ? new Date(year, month - 1, day)
+                : null;
+        }
+
+        function calculatePaymentExpiryDate(paymentDate) {
+            const date = parsePaymentDate(paymentDate);
+            if (!date) return null;
+            const targetYear = date.getFullYear() + (date.getMonth() === 11 ? 1 : 0);
+            const targetMonth = (date.getMonth() + 1) % 12;
+            const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+            return new Date(targetYear, targetMonth, Math.min(date.getDate(), lastDay));
+        }
+
+        function formatDateForStorage(date) {
+            if (!date || Number.isNaN(date.getTime())) return '';
+            return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+        }
+
+        function getPaymentExpiryDate(payment) {
+            if (!payment || payment.status !== 'PAID') return null;
+            return parsePaymentDate(payment.expiryDate) || calculatePaymentExpiryDate(payment.paymentDate);
+        }
+
+        function getLatestValidPayment(studentId, now = new Date()) {
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            return payments
+                .filter(payment => payment.studentId === studentId && payment.status === 'PAID')
+                .map(payment => ({ payment, paidOn: parsePaymentDate(payment.paymentDate), expiresOn: getPaymentExpiryDate(payment) }))
+                .filter(item => item.paidOn && item.expiresOn && today >= item.paidOn && today < item.expiresOn)
+                .sort((a, b) => b.paidOn - a.paidOn)[0]?.payment || null;
+        }
+
+        function getLatestPayment(studentId) {
+            return payments
+                .filter(payment => payment.studentId === studentId && payment.status === 'PAID')
+                .map(payment => ({ payment, paidOn: parsePaymentDate(payment.paymentDate) }))
+                .filter(item => item.paidOn)
+                .sort((a, b) => b.paidOn - a.paidOn)[0]?.payment || null;
+        }
+
+        function isPaymentExpired(student) {
+            return !getLatestValidPayment(student.id, new Date());
         }
 
         function isFeePaused(student) {
@@ -673,18 +730,27 @@
                 }
                 if (isFeePaused(person)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${person.name}'s canteen access is paused until their meal fee is recorded as paid.`;
+                    feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${person.name}'s canteen access is manually paused until it is unpaused.`;
                     addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Account Paused)' });
                     saveAppData();
                     return;
                 }
-                const currentMealMonth = getMonthKey();
-                if (!getPaidPayment(person.id, currentMealMonth)) {
+                const activePayment = getLatestValidPayment(person.id, new Date());
+                if (!activePayment) {
+                    const latestPayment = getLatestPayment(person.id);
+                    const expiryDate = latestPayment ? getPaymentExpiryDate(latestPayment) : null;
+                    const expiryText = expiryDate ? formatDateForStorage(expiryDate) : '';
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `💳 PAYMENT REQUIRED: ${person.name} has not paid for <b>${formatMealMonth(currentMealMonth)}</b> meals.`;
-                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Payment Required)' });
+                    feedbackEl.innerHTML = expiryText
+                        ? `⛔ ACCOUNT EXPIRED: ${person.name}'s meal payment expired on <b>${expiryText}</b>. Record a new payment to reactivate the account.`
+                        : `💳 PAYMENT REQUIRED: ${person.name} does not have an active meal payment. Record a payment to activate the account.`;
+                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: expiryText ? 'Rejected (Payment Expired)' : 'Rejected (Payment Required)' });
                     saveAppData();
                     return;
+                }
+                if (person.paymentExpired) {
+                    person.paymentExpired = false;
+                    saveAppData();
                 }
                 // Meal eligibility check (grade-based). Must run BEFORE the daily
                 // duplicate check below, so an ineligible breakfast attempt never
@@ -745,14 +811,30 @@
             }
         }
 
-        function initScanner() {
+        async function initScanner() {
             if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-            html5QrCode.start(
-                { facingMode: "environment" },
-                { fps: 10, qrbox: { width: 220, height: 220 } },
-                (decodedText) => handleScanResult(decodedText, 'qr'),
-                (err) => {}
-            ).catch(err => console.log("Camera inactive or blocked"));
+            const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+            const onSuccess = (decodedText) => handleScanResult(decodedText, 'qr');
+            const onError = () => {};
+
+            try {
+                // Prefer the front/selfie camera on devices with multiple cameras.
+                // This also works on a single-camera device when the browser exposes
+                // that camera as the user-facing camera.
+                await html5QrCode.start({ facingMode: { exact: "user" } }, config, onSuccess, onError);
+            } catch (frontError) {
+                try {
+                    // Automatic fallback: enumerate available cameras and use the
+                    // front-looking camera when identifiable, otherwise use the first
+                    // available camera. No manual camera picker is required.
+                    const cameras = await Html5Qrcode.getCameras();
+                    if (!cameras || !cameras.length) throw frontError;
+                    const frontCamera = cameras.find(camera => /front|user|facetime|selfie/i.test(camera.label || ''));
+                    await html5QrCode.start((frontCamera || cameras[0]).id, config, onSuccess, onError);
+                } catch (fallbackError) {
+                    console.log("Camera inactive or blocked", fallbackError);
+                }
+            }
         }
 
         // --- Future biometric identification (NOT implemented) -----------------------
