@@ -105,9 +105,41 @@
         function formatMealMonth(monthKey) { const [year, month] = monthKey.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)); }
         function isStudentEnrolled(student) { return student.enrolled !== false; }
         function getPaidPayment(studentId, mealMonth) { return payments.find(payment => payment.studentId === studentId && payment.mealMonth === mealMonth && payment.status === 'PAID'); }
-        function getUpcomingPaymentDeadline() { const date = new Date(); return new Date(date.getFullYear(), date.getMonth(), Math.min(paymentDeadlineDay, new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()), 23, 59, 59); }
-        function getAccountStatus(student) { if (!isStudentEnrolled(student)) return 'CLOSED'; if (student.paymentPaused === true) return 'PAUSED'; if (getPaidPayment(student.id, getUpcomingMonthKey())) return 'ACTIVE'; return new Date() > getUpcomingPaymentDeadline() ? 'PAUSED' : 'PAYMENT DUE'; }
-        function getStatusBadgeClass(status) { if (status === 'ACTIVE' || status === 'PAID') return 'bg-[#d8e2dc] text-[#2d4a3e]'; if (status === 'CLOSED') return 'bg-gray-200 text-gray-700'; if (status === 'PAUSED') return 'bg-red-100 text-red-800'; return 'bg-amber-100 text-amber-900'; }
+
+        function parsePaymentDate(value) {
+            if (!value) return null;
+            const match = String(value).trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            if (!match) return null;
+            const day = Number(match[1]), month = Number(match[2]), year = Number(match[3]);
+            const date = new Date(year, month - 1, day);
+            return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? new Date(year, month - 1, day) : null;
+        }
+
+        function calculatePaymentExpiryDate(paymentDate) {
+            const date = parsePaymentDate(paymentDate);
+            if (!date) return null;
+            const targetYear = date.getFullYear() + (date.getMonth() === 11 ? 1 : 0);
+            const targetMonth = (date.getMonth() + 1) % 12;
+            const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
+            return new Date(targetYear, targetMonth, Math.min(date.getDate(), lastDay));
+        }
+
+        function getPaymentExpiryDate(payment) { return payment?.expiryDate ? parsePaymentDate(payment.expiryDate) : calculatePaymentExpiryDate(payment?.paymentDate); }
+        function formatDateForStorage(date) { return date ? `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}` : ''; }
+        function getLatestValidPayment(studentId, now = new Date()) {
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            return payments.filter(p => p.studentId === studentId && p.status === 'PAID').map(payment => ({ payment, paidOn: parsePaymentDate(payment.paymentDate), expiresOn: getPaymentExpiryDate(payment) })).filter(item => item.paidOn && item.expiresOn && today >= item.paidOn && today < item.expiresOn).sort((a,b) => b.paidOn - a.paidOn)[0]?.payment || null;
+        }
+        function getLatestPayment(studentId) {
+            return payments.filter(p => p.studentId === studentId && p.status === 'PAID').map(payment => ({ payment, paidOn: parsePaymentDate(payment.paymentDate) })).filter(item => item.paidOn).sort((a,b) => b.paidOn - a.paidOn)[0]?.payment || null;
+        }
+        function getAccountStatus(student) {
+            if (!isStudentEnrolled(student)) return 'CLOSED';
+            if (student.paymentPaused === true) return 'PAUSED';
+            if (getLatestValidPayment(student.id, new Date())) return 'ACTIVE';
+            return getLatestPayment(student.id) ? 'EXPIRED' : 'PAYMENT DUE';
+        }
+        function getStatusBadgeClass(status) { if (status === 'ACTIVE' || status === 'PAID') return 'bg-[#d8e2dc] text-[#2d4a3e]'; if (status === 'CLOSED') return 'bg-gray-200 text-gray-700'; if (status === 'PAUSED' || status === 'EXPIRED') return 'bg-red-100 text-red-800'; return 'bg-amber-100 text-amber-900'; }
 
         function persist() {
             localStorage.setItem('ecocanteen_students', JSON.stringify(students));
@@ -196,8 +228,11 @@
             if (!student || !isStudentEnrolled(student)) { alert('Select an enrolled student.'); return; }
             if (!mealMonth || !paymentDate) { alert('Enter the meal month and a valid payment date in dd/mm/yyyy format.'); return; }
             if (getPaidPayment(studentId, mealMonth)) { alert(`${formatMealMonth(mealMonth)} is already marked as paid for ${student.name}.`); return; }
-            if (mealMonth === getMonthKey()) student.paymentPaused = false;
-            payments.unshift({ id: `PAY-${Date.now()}-${Math.floor(Math.random() * 1000)}`, studentId, studentName: student.name, mealMonth, paymentDate, recordedAt: new Date().toLocaleString(), status: 'PAID' });
+            const expiryDate = calculatePaymentExpiryDate(paymentDate);
+            if (!expiryDate) { alert('Could not calculate the payment expiry date.'); return; }
+            student.paymentPaused = false;
+            student.paymentExpired = false;
+            payments.unshift({ id: `PAY-${Date.now()}-${Math.floor(Math.random() * 1000)}`, studentId, studentName: student.name, mealMonth, paymentDate, expiryDate: formatDateForStorage(expiryDate), recordedAt: new Date().toLocaleString(), status: 'PAID' });
             document.getElementById('payment-date').value = '';
             persist();
             alert(`${formatMealMonth(mealMonth)} payment marked as paid for ${student.name}.`);
@@ -255,10 +290,13 @@
             if (!document.getElementById('payment-meal-month').value) document.getElementById('payment-meal-month').value = getUpcomingMonthKey();
             const upcoming = getUpcomingMonthKey();
             document.getElementById('account-status-table-body').innerHTML = students.length ? students.map(student => {
-                const payment = getPaidPayment(student.id, upcoming);
+                const payment = getLatestValidPayment(student.id, new Date());
+                const latestPayment = getLatestPayment(student.id);
                 const status = getAccountStatus(student);
-                return `<tr class="border-b border-gray-100"><td class="p-3 font-medium">${student.name}</td><td class="p-3 text-xs">${formatMealMonth(upcoming)}</td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(payment ? 'PAID' : 'PAYMENT DUE')}">${payment ? 'PAID' : 'UNPAID'}</span></td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(status)}">${status}</span></td><td class="p-3">${isStudentEnrolled(student) ? `<button onclick="openPaymentForStudent('${student.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Record Payment</button> ${student.paymentPaused ? `<button onclick="unpauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeStudentAccount('${student.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<button onclick="deleteStudentPermanently('${student.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td></tr>`;
-            }).join('') : '<tr><td colspan="5" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>';
+                const expiryDate = latestPayment ? getPaymentExpiryDate(latestPayment) : null;
+                const expiryText = expiryDate ? formatDateForStorage(expiryDate) : '—';
+                return `<tr class="border-b border-gray-100"><td class="p-3 font-medium">${student.name}</td><td class="p-3 text-xs">${payment ? formatDateForStorage(getPaymentExpiryDate(payment)) : '—'}</td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(status === 'ACTIVE' ? 'PAID' : 'PAYMENT DUE')}">${payment ? 'ACTIVE PAYMENT' : 'NO ACTIVE PAYMENT'}</span></td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(status)}">${status}</span></td><td class="p-3 text-xs">${expiryText}</td><td class="p-3">${isStudentEnrolled(student) ? `<button onclick="openPaymentForStudent('${student.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Record Payment</button> ${student.paymentPaused ? `<button onclick="unpauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeStudentAccount('${student.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<button onclick="deleteStudentPermanently('${student.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td></tr>`;
+            }).join('') : '<tr><td colspan="6" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>';
             document.getElementById('payment-audit-table-body').innerHTML = payments.length ? payments.map(payment => `<tr class="border-b border-gray-100"><td class="p-3 text-xs text-gray-500">${payment.paymentDate || 'Not recorded'}</td><td class="p-3 font-medium">${payment.studentName}</td><td class="p-3 text-xs">${formatMealMonth(payment.mealMonth)}</td></tr>`).join('') : '<tr><td colspan="3" class="p-4 text-center text-gray-400">No payments recorded yet.</td></tr>';
         }
 
