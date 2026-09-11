@@ -47,6 +47,7 @@
             </div>
 
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm space-y-6">
+                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Loading the latest data from the cloud - please wait a moment before recording payments or editing accounts.</p>
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                         <h3 class="text-md font-bold text-matte-green">Renew Monthly Canteen Payment</h3>
@@ -80,6 +81,13 @@
         let paymentDeadlineDay = Number(localStorage.getItem('ecocanteen_payment_deadline_day')) || 25;
         let firebaseDatabase = null;
         let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
+        // Becomes true once we've confirmed what's actually in the cloud database.
+        // Recording payments or editing accounts BEFORE this is true is dangerous:
+        // this device's localStorage can hold old/stale data (e.g. a long-ago test
+        // payment), and every save pushes that local copy back up to Firebase,
+        // silently resurrecting stale records. See markPaymentAsPaid, etc.
+        let cloudDataReady = false;
+        function isFirebaseConfigured() { return !!(firebaseConfig.apiKey && firebaseConfig.databaseURL); }
 
         const firebaseConfig = {
             apiKey: "AIzaSyD9qr8eJ1jzU-mC49-UPuYf8fO1LTV6QVY",
@@ -105,7 +113,7 @@
             localStorage.setItem('ecocanteen_students', JSON.stringify(students));
             localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
             localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
-            if (firebaseDatabase) firebaseDatabase.ref('mcleods-canteen').update({ students, payments, paymentDeadlineDay }).catch(error => console.error('Firebase sync failed:', error));
+            if (firebaseDatabase && cloudDataReady) firebaseDatabase.ref('mcleods-canteen').update({ students, payments, paymentDeadlineDay }).catch(error => console.error('Firebase sync failed:', error));
             render();
         }
 
@@ -129,6 +137,7 @@
                         payments = Array.isArray(data.payments) ? data.payments : payments;
                         paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
                     }
+                    cloudDataReady = true;
                     removeExpiredClosedAccounts();
                     render();
                     firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
@@ -139,8 +148,8 @@
                         paymentDeadlineDay = Number(latestData.paymentDeadlineDay) || paymentDeadlineDay;
                         render();
                     });
-                }).catch(() => render());
-            } catch { render(); }
+                }).catch(() => { cloudDataReady = true; render(); });
+            } catch { cloudDataReady = true; render(); }
         }
 
         function login() {
@@ -179,6 +188,7 @@
         }
 
         function markPaymentAsPaid() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const studentId = document.getElementById('payment-student').value;
             const mealMonth = document.getElementById('payment-meal-month').value;
             const paymentDate = normalisePaymentDate(document.getElementById('payment-date').value);
@@ -194,6 +204,7 @@
         }
 
         function closeStudentAccount(id) {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const student = students.find(item => item.id === id);
             if (!student || !isStudentEnrolled(student)) return;
             if (!confirm(`Close ${student.name}'s canteen account? Their payment history will be preserved.`)) return;
@@ -203,6 +214,7 @@
         }
 
         function deleteStudentPermanently(id) {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const student = students.find(item => item.id === id);
             if (!student || isStudentEnrolled(student)) return;
             if (!confirm(`Permanently delete ${student.name}'s account? This cannot be undone.`)) return;
@@ -211,6 +223,7 @@
         }
 
         function pauseStudentAccount(id) {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const student = students.find(item => item.id === id);
             if (!student || !isStudentEnrolled(student) || student.paymentPaused === true) return;
             if (!confirm(`Pause ${student.name}'s canteen access until a meal fee is recorded as paid?`)) return;
@@ -219,6 +232,7 @@
         }
 
         function unpauseStudentAccount(id) {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const student = students.find(item => item.id === id);
             if (!student || !isStudentEnrolled(student) || student.paymentPaused !== true) return;
             if (!confirm(`Unpause ${student.name}'s canteen account? Their current month's payment is still required before meals can be claimed.`)) return;
@@ -227,6 +241,12 @@
         }
 
         function render() {
+            const syncBanner = document.getElementById('cloud-sync-banner');
+            const stillLoading = isFirebaseConfigured() && !cloudDataReady;
+            if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
+            const completeBtn = document.querySelector('[onclick="markPaymentAsPaid()"]');
+            if (completeBtn) { completeBtn.disabled = stillLoading; completeBtn.classList.toggle('opacity-50', stillLoading); completeBtn.classList.toggle('cursor-not-allowed', stillLoading); }
+
             const select = document.getElementById('payment-student');
             const previousSelection = select.value;
             const enrolledStudents = students.filter(isStudentEnrolled);
