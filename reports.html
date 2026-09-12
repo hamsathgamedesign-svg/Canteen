@@ -15,10 +15,13 @@
         .btn-matte { background-color: #2d4a3e; color: #f4f6f0; }
         .btn-matte:hover { background-color: #243c32; }
         .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
-        @media print { header, .no-print { display: none !important; } body { background: white; } main { max-width: none !important; padding: 0 !important; } }
+        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(60vw, 480px) no-repeat; opacity: 0.08; pointer-events: none; z-index: 0; }
+        body > header, body > main { position: relative; z-index: 1; }
+        @media print { header, .no-print, .school-watermark { display: none !important; } body { background: white; } main { max-width: none !important; padding: 0 !important; } }
     </style>
 </head>
 <body class="min-h-screen">
+    <div class="school-watermark" aria-hidden="true"></div>
     <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
         <div class="flex items-center gap-2">
             <span role="img" aria-label="McLEOD's English School logo" class="header-school-logo"></span>
@@ -30,11 +33,20 @@
     <main class="max-w-6xl w-full mx-auto p-4 sm:p-6">
         <section id="reports-login" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
             <h2 class="text-xl font-bold text-matte-green mb-2">Reports Login</h2>
-            <p class="text-xs text-gray-500 mb-6">Only authorised staff can view canteen reports.</p>
+            <p class="text-xs text-gray-500 mb-6">Two security layers protect access to student and teacher records.</p>
             <div class="space-y-4">
-                <input id="admin-user" type="text" placeholder="Username" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
-                <input id="admin-pass" type="password" placeholder="Password" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
+                <input id="admin-user" type="text" placeholder="Username" onkeydown="if (event.key === 'Enter') login();" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
+                <input id="admin-pass" type="password" placeholder="Password" onkeydown="if (event.key === 'Enter') login();" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
                 <button onclick="login()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Login</button>
+            </div>
+        </section>
+
+        <section id="reports-login-layer2" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
+            <h2 class="text-xl font-bold text-matte-green mb-2">Second Security Layer</h2>
+            <p class="text-xs text-gray-500 mb-6">Enter the security phrase to protect student and teacher records.</p>
+            <div class="space-y-4">
+                <input id="admin-security-phrase" type="password" placeholder="Security phrase" onkeydown="if (event.key === 'Enter') submitSecurityPhrase();" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
+                <button onclick="submitSecurityPhrase()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Unlock Admin Dashboard</button>
             </div>
         </section>
 
@@ -92,13 +104,23 @@
             measurementId: "G-FYR72EMJRP"
         };
 
+        const ADMIN_SECURITY_PHRASE = 'mcleods-secure-2026';
+
         function login() {
             if (document.getElementById('admin-user').value !== 'admin' || document.getElementById('admin-pass').value !== 'canteen123') { alert('Invalid credentials!'); return; }
-            sessionStorage.setItem('ecocanteen_admin_session', 'true');
             document.getElementById('admin-pass').value = '';
+            document.getElementById('reports-login').classList.add('hidden');
+            document.getElementById('reports-login-layer2').classList.remove('hidden');
+            document.getElementById('admin-security-phrase').focus();
+        }
+        function submitSecurityPhrase() {
+            if (document.getElementById('admin-security-phrase').value !== ADMIN_SECURITY_PHRASE) { alert('Invalid security phrase!'); document.getElementById('admin-security-phrase').value = ''; return; }
+            sessionStorage.setItem('ecocanteen_admin_session', 'true');
+            document.getElementById('admin-security-phrase').value = '';
+            document.getElementById('reports-login-layer2').classList.add('hidden');
             showReports();
         }
-        function logout() { sessionStorage.removeItem('ecocanteen_admin_session'); document.getElementById('reports-app').classList.add('hidden'); document.getElementById('reports-login').classList.remove('hidden'); }
+        function logout() { sessionStorage.removeItem('ecocanteen_admin_session'); document.getElementById('reports-login-layer2').classList.add('hidden'); document.getElementById('reports-app').classList.add('hidden'); document.getElementById('reports-login').classList.remove('hidden'); }
         function showReports() { document.getElementById('reports-login').classList.add('hidden'); document.getElementById('reports-app').classList.remove('hidden'); loadLogs(); }
         function loadLogs() {
             try {

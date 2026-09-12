@@ -21,6 +21,13 @@
         #dashboard-nav-button.admin-login-subtle { background-color: #2d4a3e; color: #476f5f; opacity: 0.15; }
         .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
 
+        /* School logo watermark: a faint, fixed background image behind all page
+           content. pointer-events: none so it never intercepts clicks, and header/
+           main are lifted onto their own stacking layer (z-index: 1) so real content
+           always renders above it. */
+        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(60vw, 480px) no-repeat; opacity: 0.08; pointer-events: none; z-index: 0; }
+        body > header, body > main { position: relative; z-index: 1; }
+
         .print-card {
             background: #ffffff;
             border: 4px solid #1e6b1a;
@@ -59,6 +66,7 @@
     </style>
 </head>
 <body class="min-h-screen flex flex-col">
+    <div class="school-watermark" aria-hidden="true"></div>
 
     <!-- Header Navigation -->
     <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
@@ -116,17 +124,30 @@
         <!---------------- VIEW 2: ADMIN LOGIN ---------------->
         <div id="view-admin-login" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
             <h2 class="text-xl font-bold text-matte-green mb-2">Admin Portal Login</h2>
-            <p class="text-xs text-gray-500 mb-6">Login To The Admin Account to Access The Admin Dashboard</p>
+            <p class="text-xs text-gray-500 mb-6">Two security layers protect access to student and teacher records.</p>
             <div class="space-y-4">
                 <div>
                     <label class="block text-sm font-medium mb-1">Username</label>
-                    <input type="text" id="admin-user" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="admin">
+                    <input type="text" id="admin-user" onkeydown="if (event.key === 'Enter') processAdminLogin();" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="admin">
                 </div>
                 <div>
                     <label class="block text-sm font-medium mb-1">Password</label>
-                    <input type="password" id="admin-pass" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="••••••••">
+                    <input type="password" id="admin-pass" onkeydown="if (event.key === 'Enter') processAdminLogin();" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="••••••••">
                 </div>
                 <button onclick="processAdminLogin()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Login</button>
+            </div>
+        </div>
+
+        <!---------------- VIEW 2b: ADMIN LOGIN, SECOND SECURITY LAYER ---------------->
+        <div id="view-admin-login-layer2" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
+            <h2 class="text-xl font-bold text-matte-green mb-2">Second Security Layer</h2>
+            <p class="text-xs text-gray-500 mb-6">Enter the security phrase to protect student and teacher records.</p>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">Security phrase</label>
+                    <input type="password" id="admin-security-phrase" onkeydown="if (event.key === 'Enter') processSecurityLayer2();" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="••••••••">
+                </div>
+                <button onclick="processSecurityLayer2()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Unlock Admin Dashboard</button>
             </div>
         </div>
 
@@ -273,6 +294,7 @@
         let badgePrintIndividual = null;
         let isAdminLoggedIn = sessionStorage.getItem('ecocanteen_admin_session') === 'true';
         let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
+        let pendingAdminUsername = ''; // holds the username between login layer 1 and layer 2
         let html5QrCode = null;
         let firebaseDatabase = null;
         let scanLocked = false;
@@ -572,6 +594,7 @@
             currentView = viewName;
             document.getElementById('view-scanner').classList.add('hidden');
             document.getElementById('view-admin-login').classList.add('hidden');
+            document.getElementById('view-admin-login-layer2').classList.add('hidden');
             document.getElementById('view-admin-dashboard').classList.add('hidden');
             stopScanner();
 
@@ -600,27 +623,52 @@
             else switchView('login');
         }
 
+        // --- Two-layer admin login -----------------------------------------------------
+        // Layer 1: username + password. Layer 2: a separate security phrase. Both must
+        // pass before isAdminLoggedIn is set and the dashboard becomes reachable.
+        // Note: like the layer-1 password, this phrase lives in the client-side code,
+        // so it's an application-level speed bump (keeps casual/curious users out), not
+        // real security - actual protection of student/teacher data still has to come
+        // from Firebase Database Rules, not from anything checked in the browser.
+        const ADMIN_SECURITY_PHRASE = 'mcleods-secure-2026';
+
         function processAdminLogin() {
             const u = document.getElementById('admin-user').value;
             const p = document.getElementById('admin-pass').value;
             if (u === 'admin' && p === 'canteen123') {
+                document.getElementById('admin-pass').value = '';
+                document.getElementById('view-admin-login').classList.add('hidden');
+                document.getElementById('view-admin-login-layer2').classList.remove('hidden');
+                document.getElementById('admin-security-phrase').focus();
+                pendingAdminUsername = u;
+            } else {
+                alert('Invalid credentials!');
+            }
+        }
+
+        function processSecurityLayer2() {
+            const phrase = document.getElementById('admin-security-phrase').value;
+            if (phrase === ADMIN_SECURITY_PHRASE) {
                 isAdminLoggedIn = true;
-                currentAdminName = u;
+                currentAdminName = pendingAdminUsername;
                 sessionStorage.setItem('ecocanteen_admin_session', 'true');
                 sessionStorage.setItem('ecocanteen_admin_name', currentAdminName);
-                document.getElementById('admin-pass').value = '';
+                document.getElementById('admin-security-phrase').value = '';
                 refreshUI();
                 switchView('dashboard');
             } else {
-                alert('Invalid credentials!');
+                alert('Invalid security phrase!');
+                document.getElementById('admin-security-phrase').value = '';
             }
         }
 
         function adminLogout() {
             isAdminLoggedIn = false;
             currentAdminName = '';
+            pendingAdminUsername = '';
             sessionStorage.removeItem('ecocanteen_admin_session');
             sessionStorage.removeItem('ecocanteen_admin_name');
+            document.getElementById('view-admin-login-layer2').classList.add('hidden');
             switchView('scanner');
         }
 
