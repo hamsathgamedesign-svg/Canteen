@@ -215,7 +215,7 @@
 
             <!-- Registration Forms -->
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm space-y-6">
-                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Loading the latest data from the cloud - please wait a moment before adding students, teachers, or classes.</p>
+                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Connecting to the cloud database…</p>
                 <div>
                     <h3 class="text-md font-bold text-matte-green mb-3">Register New Student</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -341,6 +341,7 @@
         let cloudBaseline = null;
         let cloudSyncInFlight = false;
         let cloudSyncQueued = false;
+        let cloudRetryTimer = null;
 
         function deepClone(value) {
             return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
@@ -464,16 +465,46 @@
             return firebaseConfig.apiKey && firebaseConfig.databaseURL;
         }
 
+
+        function getLocalStateSnapshot() {
+            return deepClone({ grades, divisions, students, teachers, payments, paymentDeadlineDay, dailyTracker, dailyTrackerDate, monthlyResetMonth, scanLogs });
+        }
+
+        function applyCloudState(data) {
+            if (!data) return;
+            grades = Array.isArray(data.grades) ? data.grades : grades;
+            divisions = Array.isArray(data.divisions) ? data.divisions : divisions;
+            students = Array.isArray(data.students) ? data.students : students;
+            teachers = Array.isArray(data.teachers) ? data.teachers : teachers;
+            payments = Array.isArray(data.payments) ? data.payments : payments;
+            paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
+            dailyTracker = data.dailyTracker || {};
+            dailyTrackerDate = data.dailyTrackerDate || dailyTrackerDate;
+            monthlyResetMonth = data.monthlyResetMonth || monthlyResetMonth;
+            scanLogs = Array.isArray(data.scanLogs) ? data.scanLogs : scanLogs;
+        }
+
+        function scheduleCloudRetry() {
+            clearTimeout(cloudRetryTimer);
+            cloudRetryTimer = setTimeout(() => {
+                if (firebaseDatabase) loadCloudData(true);
+            }, 8000);
+        }
+
         function syncCloudData() {
-            if (!firebaseDatabase || !cloudDataReady) return;
+            if (!firebaseDatabase) return;
             if (cloudSyncInFlight) { cloudSyncQueued = true; return; }
             cloudSyncInFlight = true;
-            firebaseDatabase.ref('mcleods-canteen').transaction(current => buildMergedCloudState(current), (error, committed, snapshot) => {
+            const ref = firebaseDatabase.ref('mcleods-canteen');
+            ref.transaction(current => buildMergedCloudState(current), (error, committed, snapshot) => {
                 cloudSyncInFlight = false;
                 if (error) {
                     console.error('Firebase sync failed:', error);
+                    showCloudStatus(`⚠️ Cloud sync failed: ${error.message || error}. Your changes are saved on this device and will retry automatically.`, 'error');
+                    scheduleCloudRetry();
                 } else if (committed && snapshot?.val()) {
                     cloudBaseline = deepClone(snapshot.val());
+                    showCloudStatus('☁️ Saved to the cloud. Other devices can now receive this data.', 'success');
                 }
                 if (cloudSyncQueued) {
                     cloudSyncQueued = false;
@@ -482,90 +513,97 @@
             }, false);
         }
 
-        function loadCloudData() {
+        let cloudLoadTimer = null;
+        let cloudStatus = 'connecting';
+
+        function showCloudStatus(message, tone = 'warning') {
+            cloudStatus = tone;
+            const banner = document.getElementById('cloud-sync-banner');
+            if (!banner) return;
+            banner.classList.remove('hidden');
+            banner.className = `text-xs rounded-lg p-3 border ${tone === 'error' ? 'text-red-800 bg-red-50 border-red-200' : tone === 'success' ? 'text-green-800 bg-green-50 border-green-200' : 'text-amber-800 bg-amber-50 border-amber-200'}`;
+            banner.textContent = message;
+        }
+
+        function clearCloudLoadTimer() {
+            if (cloudLoadTimer) { clearTimeout(cloudLoadTimer); cloudLoadTimer = null; }
+        }
+
+        function handleCloudLoadFailure(error, reason = 'Firebase could not be reached') {
+            clearCloudLoadTimer();
+            console.error('Firebase cloud load failed:', error);
+            // NEVER lock the admin UI because the cloud is unavailable. LocalStorage
+            // remains usable and all edits are retained for the next successful sync.
+            cloudDataReady = true;
+            showCloudStatus(`⚠️ ${reason}. You can keep using the app; cloud sync will retry automatically. Firebase error: ${error?.message || error || 'unknown error'}.`, 'error');
+            refreshUI();
+            scheduleCloudRetry();
+        }
+
+        function loadCloudData(isRetry = false) {
             if (!isFirebaseConfigured()) {
-                console.info('Firebase is not configured. Using this browser\'s local storage.');
                 cloudDataReady = true;
+                showCloudStatus('ℹ️ Firebase is not configured; this device is using local storage.', 'warning');
                 refreshUI();
                 switchView(getInitialView());
                 return;
             }
 
             try {
-                firebase.initializeApp(firebaseConfig);
+                if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
                 firebaseDatabase = firebase.database();
-                firebaseDatabase.ref('mcleods-canteen').once('value').then(snapshot => {
+                clearCloudLoadTimer();
+                clearTimeout(cloudRetryTimer);
+                if (!isRetry) showCloudStatus('⏳ Connecting to the cloud database… You can still use the app.', 'warning');
+                cloudDataReady = true; // Editing must never be blocked by a cloud outage.
+                refreshUI();
+
+                const ref = firebaseDatabase.ref('mcleods-canteen');
+                const localBeforeRead = getLocalStateSnapshot();
+                cloudLoadTimer = setTimeout(() => {
+                    handleCloudLoadFailure(new Error('Connection timed out after 10 seconds'), 'The cloud connection timed out');
+                }, 10000);
+
+                ref.once('value').then(snapshot => {
+                    clearCloudLoadTimer();
                     const cloudData = snapshot.val();
                     if (cloudData) {
-                        grades = Array.isArray(cloudData.grades) ? cloudData.grades : grades;
-                        divisions = Array.isArray(cloudData.divisions) ? cloudData.divisions : divisions;
-                        students = Array.isArray(cloudData.students) ? cloudData.students : students;
-                        teachers = Array.isArray(cloudData.teachers) ? cloudData.teachers : teachers;
-                        payments = Array.isArray(cloudData.payments) ? cloudData.payments : payments;
-                        paymentDeadlineDay = Number(cloudData.paymentDeadlineDay) || paymentDeadlineDay;
-                        dailyTracker = cloudData.dailyTracker || {};
-                        dailyTrackerDate = cloudData.dailyTrackerDate || dailyTrackerDate;
-                        monthlyResetMonth = cloudData.monthlyResetMonth || monthlyResetMonth;
-                        scanLogs = Array.isArray(cloudData.scanLogs) ? cloudData.scanLogs : [];
-                        cloudDataReady = true;
-                        cloudBaseline = deepClone(cloudData);
+                        // Merge any edits made on this device while the cloud read was
+                        // pending instead of replacing them with an older cloud snapshot.
+                        cloudBaseline = localBeforeRead;
+                        const merged = buildMergedCloudState(cloudData);
+                        applyCloudState(merged);
+                        cloudBaseline = deepClone(merged);
+                        showCloudStatus(sameData(merged, cloudData) ? '☁️ Connected to the cloud database.' : '☁️ Connected. Local changes were merged with cloud data.', 'success');
+                        if (!sameData(merged, cloudData)) syncCloudData();
                     } else {
-                        // Nothing in the cloud yet - it's safe to seed it from local data.
-                        cloudDataReady = true;
-                        cloudBaseline = {};
+                        cloudBaseline = localBeforeRead;
+                        showCloudStatus('☁️ Connected. The cloud database is empty; this device is initializing it.', 'success');
                         syncCloudData();
                     }
+                    cloudDataReady = true;
                     runAutomaticResets();
                     refreshUI();
                     switchView(getInitialView());
-                    firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
+
+                    ref.off('value');
+                    ref.on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
-                        if (!latestData) return;
-                        if (cloudSyncInFlight) return;
+                        if (!latestData || cloudSyncInFlight) return;
+                        // Treat the last confirmed cloud snapshot as the baseline so only
+                        // actual local edits are merged on top of remote changes.
                         cloudBaseline = deepClone(latestData);
-                        grades = Array.isArray(latestData.grades) ? latestData.grades : grades;
-                        divisions = Array.isArray(latestData.divisions) ? latestData.divisions : divisions;
-                        students = Array.isArray(latestData.students) ? latestData.students : students;
-                        teachers = Array.isArray(latestData.teachers) ? latestData.teachers : teachers;
-                        payments = Array.isArray(latestData.payments) ? latestData.payments : payments;
-                        paymentDeadlineDay = Number(latestData.paymentDeadlineDay) || paymentDeadlineDay;
-                        dailyTracker = latestData.dailyTracker || dailyTracker;
-                        dailyTrackerDate = latestData.dailyTrackerDate || dailyTrackerDate;
-                        monthlyResetMonth = latestData.monthlyResetMonth || monthlyResetMonth;
-                        scanLogs = Array.isArray(latestData.scanLogs) ? latestData.scanLogs : scanLogs;
+                        applyCloudState(latestData);
+                        cloudDataReady = true;
+                        showCloudStatus('☁️ Cloud data is up to date.', 'success');
                         runAutomaticResets();
                         refreshUI();
-                    });
-                }).catch(error => {
-                    console.error('Firebase loading failed:', error);
-                    // We couldn't confirm the cloud state, so treat this device's
-                    // local copy as the only source of truth for now rather than
-                    // silently blocking every save.
-                    cloudDataReady = false;
-                    refreshUI();
-                    switchView(getInitialView());
-                });
+                    }, error => handleCloudLoadFailure(error, 'The live cloud listener failed'));
+                }).catch(error => handleCloudLoadFailure(error, 'Firebase rejected or could not complete the initial read'));
             } catch (error) {
-                console.error('Firebase setup failed:', error);
-                cloudDataReady = false;
-                refreshUI();
+                handleCloudLoadFailure(error, 'Firebase setup failed');
                 switchView(getInitialView());
             }
-        }
-
-        function saveAppData() {
-            localStorage.setItem('ecocanteen_grades', JSON.stringify(grades));
-            localStorage.setItem('ecocanteen_divisions', JSON.stringify(divisions));
-            localStorage.setItem('ecocanteen_students', JSON.stringify(students));
-            localStorage.setItem('ecocanteen_teachers', JSON.stringify(teachers));
-            localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
-            localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
-            localStorage.setItem('ecocanteen_tracker', JSON.stringify(dailyTracker));
-            localStorage.setItem('ecocanteen_tracker_date', dailyTrackerDate);
-            localStorage.setItem('ecocanteen_monthly_reset_month', monthlyResetMonth);
-            localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs));
-            refreshUI();
-            syncCloudData();
         }
 
         function getMonthKey(date = new Date()) {
@@ -816,7 +854,6 @@
         }
 
         function addGrade() {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const val = document.getElementById('new-grade-input').value.trim();
             if (val && !grades.includes(val)) {
                 grades.push(val);
@@ -826,7 +863,6 @@
         }
 
         function addDivision() {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const val = document.getElementById('new-div-input').value.trim();
             if (val && !divisions.includes(val)) {
                 divisions.push(val);
@@ -836,7 +872,6 @@
         }
 
         function registerStudent() {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const name = document.getElementById('reg-name').value.trim();
             const grade = document.getElementById('reg-grade').value;
             const division = document.getElementById('reg-division').value;
@@ -850,7 +885,6 @@
         }
 
         function registerTeacher() {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const name = document.getElementById('reg-teacher-name').value.trim();
             if (!name) { alert('Enter teacher name.'); return; }
 
@@ -1140,16 +1174,15 @@
         }
 
         function refreshUI() {
-            // Show a banner and disable data-entry while we still don't know
-            // what's actually saved in the cloud (see cloudDataReady).
+            // Cloud status is informational only. The admin UI must remain usable even
+            // when Firebase is offline or its read is temporarily delayed.
             const syncBanner = document.getElementById('cloud-sync-banner');
-            const stillLoading = isFirebaseConfigured() && !cloudDataReady;
-            if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
+            if (syncBanner) syncBanner.classList.toggle('hidden', !cloudStatus);
             ['reg-name', 'reg-grade', 'reg-division', 'reg-teacher-name', 'new-grade-input', 'new-div-input'].forEach(id => {
                 const el = document.getElementById(id);
-                if (el) el.disabled = stillLoading;
+                if (el) el.disabled = false;
             });
-            document.querySelectorAll('[onclick="registerStudent()"], [onclick="registerTeacher()"], [onclick="addGrade()"], [onclick="addDivision()"]').forEach(btn => { btn.disabled = stillLoading; btn.classList.toggle('opacity-50', stillLoading); btn.classList.toggle('cursor-not-allowed', stillLoading); });
+            document.querySelectorAll('[onclick="registerStudent()"], [onclick="registerTeacher()"], [onclick="addGrade()"], [onclick="addDivision()"]').forEach(btn => { btn.disabled = false; btn.classList.remove('opacity-50', 'cursor-not-allowed'); });
 
             // Populate Grade/Division Dropdowns
             document.getElementById('reg-grade').innerHTML = grades.map(g => `<option value="${g}">${g}</option>`).join('');

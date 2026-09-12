@@ -118,7 +118,7 @@
         // this device's localStorage can hold old/stale data (e.g. a long-ago test
         // payment), and every save pushes that local copy back up to Firebase,
         // silently resurrecting stale records. See markPaymentAsPaid, etc.
-        let cloudDataReady = false;
+        let cloudDataReady = true;
         let cloudBaseline = null;
         let cloudSyncInFlight = false;
         let cloudSyncQueued = false;
@@ -231,36 +231,75 @@
             persist();
         }
 
+        let cloudLoadTimer = null;
+        let cloudStatus = 'connecting';
+        function showCloudStatus(message, tone = 'warning') {
+            cloudStatus = tone;
+            const banner = document.getElementById('cloud-sync-banner');
+            if (!banner) return;
+            banner.classList.remove('hidden');
+            banner.className = `text-xs rounded-lg p-3 border ${tone === 'error' ? 'text-red-800 bg-red-50 border-red-200' : tone === 'success' ? 'text-green-800 bg-green-50 border-green-200' : 'text-amber-800 bg-amber-50 border-amber-200'}`;
+            banner.textContent = message;
+        }
         function loadData() {
             try {
-                firebase.initializeApp(firebaseConfig);
+                if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
                 firebaseDatabase = firebase.database();
-                firebaseDatabase.ref('mcleods-canteen').once('value').then(snapshot => {
+                showCloudStatus('⏳ Connecting to the cloud database…', 'warning');
+                if (cloudLoadTimer) clearTimeout(cloudLoadTimer);
+                cloudLoadTimer = setTimeout(() => {
+                    cloudBaseline = deepClone({students, payments, paymentDeadlineDay});
+                    cloudDataReady = true;
+                    showCloudStatus('⚠️ The cloud connection timed out after 10 seconds. Local editing is available; Firebase will be retried when you reload.', 'error');
+                    render();
+                }, 10000);
+                const ref = firebaseDatabase.ref('mcleods-canteen');
+                ref.once('value').then(snapshot => {
+                    if (cloudLoadTimer) clearTimeout(cloudLoadTimer);
                     const data = snapshot.val();
                     if (data) {
                         students = Array.isArray(data.students) ? data.students : students;
                         payments = Array.isArray(data.payments) ? data.payments : payments;
                         paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
                         cloudBaseline = deepClone(data);
-                    } else {
-                        cloudBaseline = {};
-                    }
+                    } else cloudBaseline = {};
                     cloudDataReady = true;
+                    showCloudStatus('☁️ Connected to the cloud database.', 'success');
                     removeExpiredClosedAccounts();
                     render();
-                    firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
+                    ref.off('value');
+                    ref.on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
-                        if (!latestData) return;
-                        if (cloudSyncInFlight) return;
+                        if (!latestData || cloudSyncInFlight) return;
                         cloudBaseline = deepClone(latestData);
                         students = Array.isArray(latestData.students) ? latestData.students : students;
                         payments = Array.isArray(latestData.payments) ? latestData.payments : payments;
                         paymentDeadlineDay = Number(latestData.paymentDeadlineDay) || paymentDeadlineDay;
+                        cloudDataReady = true;
+                        showCloudStatus('☁️ Cloud data is up to date.', 'success');
+                        render();
+                    }, error => {
+                        console.error('Firebase live listener failed:', error);
+                        cloudDataReady = true;
+                        showCloudStatus(`⚠️ Live cloud updates failed: ${error?.message || error}. Local editing remains available.`, 'error');
                         render();
                     });
-                }).catch(error => { console.error('Firebase loading failed:', error); cloudDataReady = false; render(); });
-            } catch (error) { console.error('Firebase setup failed:', error); cloudDataReady = false; render(); }
+                }).catch(error => {
+                    if (cloudLoadTimer) clearTimeout(cloudLoadTimer);
+                    console.error('Firebase loading failed:', error);
+                    cloudBaseline = deepClone({students, payments, paymentDeadlineDay});
+                    cloudDataReady = true;
+                    showCloudStatus(`⚠️ Firebase could not load the cloud data: ${error?.message || error}. Local editing is available.`, 'error');
+                    render();
+                });
+            } catch (error) {
+                console.error('Firebase setup failed:', error);
+                cloudDataReady = true;
+                showCloudStatus(`⚠️ Firebase setup failed: ${error?.message || error}. Local editing is available.`, 'error');
+                render();
+            }
         }
+
 
         function login() {
             const username = document.getElementById('admin-user').value;
@@ -311,7 +350,6 @@
         }
 
         function markPaymentAsPaid() {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const studentId = document.getElementById('payment-student').value;
             const mealMonth = document.getElementById('payment-meal-month').value;
             const paymentDate = normalisePaymentDate(document.getElementById('payment-date').value);
@@ -330,7 +368,6 @@
         }
 
         function closeStudentAccount(id) {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const student = students.find(item => item.id === id);
             if (!student || !isStudentEnrolled(student)) return;
             if (!confirm(`Close ${student.name}'s canteen account? Their payment history will be preserved.`)) return;
@@ -340,7 +377,6 @@
         }
 
         function deleteStudentPermanently(id) {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const student = students.find(item => item.id === id);
             if (!student || isStudentEnrolled(student)) return;
             if (!confirm(`Permanently delete ${student.name}'s account? This cannot be undone.`)) return;
@@ -349,7 +385,6 @@
         }
 
         function pauseStudentAccount(id) {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const student = students.find(item => item.id === id);
             if (!student || !isStudentEnrolled(student) || student.paymentPaused === true) return;
             if (!confirm(`Pause ${student.name}'s canteen access until a meal fee is recorded as paid?`)) return;
@@ -358,7 +393,6 @@
         }
 
         function unpauseStudentAccount(id) {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const student = students.find(item => item.id === id);
             if (!student || !isStudentEnrolled(student) || student.paymentPaused !== true) return;
             if (!confirm(`Unpause ${student.name}'s canteen account? Their current month's payment is still required before meals can be claimed.`)) return;
@@ -368,7 +402,7 @@
 
         function render() {
             const syncBanner = document.getElementById('cloud-sync-banner');
-            const stillLoading = isFirebaseConfigured() && !cloudDataReady;
+            const stillLoading = false;
             if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
             const completeBtn = document.querySelector('[onclick="markPaymentAsPaid()"]');
             if (completeBtn) { completeBtn.disabled = stillLoading; completeBtn.classList.toggle('opacity-50', stillLoading); completeBtn.classList.toggle('cursor-not-allowed', stillLoading); }
