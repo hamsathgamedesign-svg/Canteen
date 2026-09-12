@@ -21,6 +21,18 @@
         #dashboard-nav-button.admin-login-subtle { background-color: #2d4a3e; color: #476f5f; opacity: 0.15; }
         .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
 
+        /* The scan-result popup: a floating card pinned near the top of the viewport so
+           it's always visible immediately after a scan, regardless of scroll position
+           or how tall the camera preview is. showScanPopup()/hideScanFeedback() build
+           its contents and control visibility/auto-dismiss - see the JS below. */
+        #scan-feedback { position: fixed; top: 5.5rem; left: 50%; transform: translateX(-50%); z-index: 60; width: min(92vw, 22rem); background: #fff; border-radius: 1rem; box-shadow: 0 12px 30px rgba(0,0,0,0.22); padding: 2rem 1.25rem 1.25rem; text-align: center; }
+        .scan-popup-close { position: absolute; top: 0.5rem; right: 0.85rem; font-size: 1.75rem; line-height: 1; background: none; border: none; color: #9ca3af; cursor: pointer; padding: 0; }
+        .scan-popup-close:hover { color: #4b5563; }
+        .scan-popup-emoji { font-size: 3rem; line-height: 1; margin-bottom: 0.5rem; }
+        .scan-popup-heading { font-size: 1.35rem; font-weight: 800; letter-spacing: 0.03em; margin-bottom: 0.5rem; }
+        .scan-popup-reason { font-size: 0.9rem; color: #4b5563; margin-bottom: 1.25rem; line-height: 1.4; }
+        .scan-popup-ok { width: 100%; padding: 0.6rem; border-radius: 0.6rem; font-weight: 700; font-size: 0.9rem; border: none; cursor: pointer; }
+
         /* School logo watermark: a faint, fixed background image behind all page
            content. pointer-events: none so it never intercepts clicks, and header/
            main are lifted onto their own stacking layer (z-index: 1) so real content
@@ -116,7 +128,7 @@
                 </div>
 
                 <!-- Scan Status Feedback Box -->
-                <div id="scan-feedback" class="mt-4 p-4 rounded-xl hidden text-center font-bold text-sm"></div>
+                <div id="scan-feedback" class="hidden"></div>
             </div>
 
         </div>
@@ -726,6 +738,32 @@
         // the ID was obtained. Adding a new identification method later only means
         // calling handleScanResult(id, 'fingerprint') or handleScanResult(id, 'face')
         // from that method's code - none of the validation below needs to change.
+        // --- Scan-result popup ---------------------------------------------------------
+        // One central function builds the popup for every accept/reject case, matching
+        // the school's requested layout: a close (x) in the corner, a tick/cross emoji,
+        // an ACCEPTED/REJECTED heading, a plain-language reason, and an OK button. It
+        // auto-dismisses after 2 seconds, but a fresh scan or the OK/x button both clear
+        // that timer so results never overlap or vanish early.
+        let scanPopupTimeoutId = null;
+        function showScanPopup(accepted, reasonHtml) {
+            clearTimeout(scanPopupTimeoutId);
+            const feedbackEl = document.getElementById('scan-feedback');
+            const accentColor = accepted ? '#2d4a3e' : '#b91c1c';
+            feedbackEl.className = "block";
+            feedbackEl.innerHTML = `
+                <button onclick="hideScanFeedback()" class="scan-popup-close" aria-label="Close">&times;</button>
+                <div class="scan-popup-emoji">${accepted ? '✅' : '❌'}</div>
+                <div class="scan-popup-heading" style="color:${accentColor}">${accepted ? 'ACCEPTED' : 'REJECTED'}</div>
+                <div class="scan-popup-reason">${reasonHtml}</div>
+                <button onclick="hideScanFeedback()" class="scan-popup-ok" style="background:${accentColor};color:#fff">OK</button>
+            `;
+            scanPopupTimeoutId = setTimeout(hideScanFeedback, 2000);
+        }
+        function hideScanFeedback() {
+            clearTimeout(scanPopupTimeoutId);
+            document.getElementById('scan-feedback').className = "hidden";
+        }
+
         function handleScanResult(code, method = 'qr') {
             // QR readers report the same code repeatedly while it remains in view.
             // Keep the five-second cooldown silent so only one scan is processed.
@@ -735,37 +773,32 @@
 
             runAutomaticResets();
             const category = document.getElementById('active-meal-category').value;
-            const feedbackEl = document.getElementById('scan-feedback');
             const student = students.find(s => s.id === code);
             const teacher = teachers.find(t => t.id === code);
             const person = student || teacher;
             const timeStr = new Date().toLocaleTimeString();
 
             if (!person) {
-                feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                feedbackEl.innerHTML = `⚠️ UNKNOWN ID: "${code}" is not found.`;
+                showScanPopup(false, `"${code}" is not a recognised student or teacher ID.`);
                 return;
             }
 
             if (student) {
                 if (!isStudentEnrolled(person)) {
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-gray-200 text-gray-700 border border-gray-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `⛔ ACCOUNT CLOSED: ${person.name}'s canteen account is no longer active.`;
+                    showScanPopup(false, `${person.name}'s canteen account is no longer active.`);
                     return;
                 }
                 if (isFeePaused(person)) {
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${person.name}'s canteen access is paused until their meal fee is recorded as paid.`;
+                    showScanPopup(false, `${person.name}'s canteen access is paused until their meal fee is recorded as paid.`);
                     addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Account Paused)' });
                     saveAppData();
                     return;
                 }
                 if (!isPaymentCurrentlyValid(person.id)) {
                     const lastExpiry = getLatestPaymentExpiry(person.id);
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = lastExpiry
-                        ? `💳 PAYMENT REQUIRED: ${person.name}'s canteen payment expired on <b>${new Date(lastExpiry).toLocaleDateString('en-GB')}</b>.`
-                        : `💳 PAYMENT REQUIRED: ${person.name} has no canteen payment on record.`;
+                    showScanPopup(false, lastExpiry
+                        ? `${person.name}'s canteen payment expired on ${new Date(lastExpiry).toLocaleDateString('en-GB')}.`
+                        : `${person.name} has no canteen payment on record.`);
                     addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Payment Required)' });
                     saveAppData();
                     return;
@@ -774,8 +807,7 @@
                 // duplicate check below, so an ineligible breakfast attempt never
                 // marks breakfast as claimed for the day. Lunch is unaffected.
                 if (category === 'Breakfast' && !isBreakfastAvailableForStudent(person)) {
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `🍳 BREAKFAST NOT AVAILABLE: Breakfast is only available for Grades 1 and 2. ${person.name} is in ${person.grade}.`;
+                    showScanPopup(false, `Breakfast is only available for Grades 1 and 2. ${person.name} is in ${person.grade}.`);
                     addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Breakfast Not Available)' });
                     saveAppData();
                     return;
@@ -784,15 +816,13 @@
 
             if (teacher) {
                 if (!isTeacherEnrolled(teacher)) {
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-gray-200 text-gray-700 border border-gray-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `⛔ ACCOUNT CLOSED: ${teacher.name}'s canteen account is no longer active.`;
+                    showScanPopup(false, `${teacher.name}'s canteen account is no longer active.`);
                     addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, method, status: 'Rejected (Account Closed)' });
                     saveAppData();
                     return;
                 }
                 if (isTeacherPaused(teacher)) {
-                    feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${teacher.name}'s canteen access is paused.`;
+                    showScanPopup(false, `${teacher.name}'s canteen access is paused.`);
                     addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, method, status: 'Rejected (Account Paused)' });
                     saveAppData();
                     return;
@@ -808,14 +838,11 @@
             let claimed = dailyTracker[person.id][mealKey] === true;
 
             if (claimed) {
-                feedbackEl.className = "mt-4 p-4 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 font-bold block text-sm";
-                feedbackEl.innerHTML = `❌ REJECTED: ${person.name} (${classGroup}) already claimed <b>${category}</b> today!`;
+                showScanPopup(false, `${person.name} (${classGroup}) already claimed ${category} today.`);
                 addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Rejected (Duplicate)' });
             } else {
                 dailyTracker[person.id][mealKey] = true;
-
-                feedbackEl.className = "mt-4 p-4 rounded-xl bg-[#d8e2dc] text-[#2d4a3e] border border-[#b2c4bc] font-bold block text-sm";
-                feedbackEl.innerHTML = `✅ SUCCESS: ${category} recorded for <b>${person.name}</b> [${classGroup}]`;
+                showScanPopup(true, `${category} recorded for ${person.name} [${classGroup}]`);
                 addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Success' });
             }
             saveAppData();

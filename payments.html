@@ -69,7 +69,7 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <select id="payment-student" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none"></select>
                     <input id="payment-meal-month" type="month" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
-                    <input id="payment-date" type="text" inputmode="numeric" placeholder="Date of payment (dd/mm/yyyy)" pattern="[0-9]{2}/[0-9]{2}/[0-9]{4}" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
+                    <input id="payment-date" type="date" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
                     <button onclick="markPaymentAsPaid()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition">Complete Payment</button>
                 </div>
             </div>
@@ -248,25 +248,32 @@
 
         function openPaymentForStudent(id) { document.getElementById('payment-student').value = id; document.getElementById('payment-meal-month').value = getUpcomingMonthKey(); document.getElementById('payment-date').focus(); }
 
-        function normalisePaymentDate(value) {
-            const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        // <input type="date"> always gives an ISO "yyyy-mm-dd" value (or "" if empty),
+        // regardless of the browser's locale/display format. This turns that into a
+        // real Date object, and payments.html still stores paymentDate as dd/mm/yyyy
+        // internally so older code (audit table, parseDisplayDate for legacy records)
+        // keeps working unchanged.
+        function parsePaymentDateInput(value) {
+            const match = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
             if (!match) return null;
-            const [, day, month, year] = match.map(Number);
+            const [, year, month, day] = match.map(Number);
             const date = new Date(year, month - 1, day);
-            if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
-            return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`;
+            return (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) ? date : null;
+        }
+        function formatDisplayDate(date) {
+            return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
         }
 
         function markPaymentAsPaid() {
             if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const studentId = document.getElementById('payment-student').value;
             const mealMonth = document.getElementById('payment-meal-month').value;
-            const paymentDate = normalisePaymentDate(document.getElementById('payment-date').value);
+            const paymentDateObj = parsePaymentDateInput(document.getElementById('payment-date').value);
             const student = students.find(item => item.id === studentId);
             if (!student || !isStudentEnrolled(student)) { alert('Select an enrolled student.'); return; }
-            if (!mealMonth || !paymentDate) { alert('Enter the meal month and a valid payment date in dd/mm/yyyy format.'); return; }
+            if (!mealMonth || !paymentDateObj) { alert('Select the meal month and pick a payment date.'); return; }
             if (getPaidPayment(studentId, mealMonth)) { alert(`${formatMealMonth(mealMonth)} is already marked as paid for ${student.name}.`); return; }
-            const paymentDateObj = parseDisplayDate(paymentDate);
+            const paymentDate = formatDisplayDate(paymentDateObj);
             const expiresAt = addOneMonth(paymentDateObj).getTime();
             student.paymentPaused = false; // A new payment always reactivates canteen access.
             payments.unshift({ id: `PAY-${Date.now()}-${Math.floor(Math.random() * 1000)}`, studentId, studentName: student.name, mealMonth, paymentDate, expiresAt, recordedAt: new Date().toLocaleString(), status: 'PAID' });
