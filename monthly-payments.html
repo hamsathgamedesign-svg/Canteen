@@ -119,6 +119,9 @@
         // payment), and every save pushes that local copy back up to Firebase,
         // silently resurrecting stale records. See markPaymentAsPaid, etc.
         let cloudDataReady = false;
+        let cloudBaseline = null;
+        let cloudSyncInFlight = false;
+        let cloudSyncQueued = false;
         function isFirebaseConfigured() { return !!(firebaseConfig.apiKey && firebaseConfig.databaseURL); }
 
         const firebaseConfig = {
@@ -131,6 +134,33 @@
             appId: "1:849945519532:web:fd012de87be618cf324609",
             measurementId: "G-FYR72EMJRP"
         };
+
+        function deepClone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
+        function sameData(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+        function mergeTrackedArray(current, baseline, local) {
+            const cur = Array.isArray(current) ? current : [], base = Array.isArray(baseline) ? baseline : [], loc = Array.isArray(local) ? local : [];
+            const baseById = new Map(base.filter(x => x && x.id != null).map(x => [String(x.id), x]));
+            const localById = new Map(loc.filter(x => x && x.id != null).map(x => [String(x.id), x]));
+            const result = cur.filter(x => x && x.id != null).map(deepClone);
+            for (const [id, item] of localById) {
+                const baseItem = baseById.get(id);
+                if (!baseItem || !sameData(item, baseItem)) {
+                    const i = result.findIndex(x => String(x.id) === id);
+                    if (i >= 0) result[i] = deepClone(item); else result.push(deepClone(item));
+                }
+            }
+            for (const [id] of baseById) if (!localById.has(id)) { const i = result.findIndex(x => String(x.id) === id); if (i >= 0) result.splice(i, 1); }
+            return result;
+        }
+        function buildMergedCloudState(current) {
+            const cloud = current || {}, base = cloudBaseline || {};
+            const merged = { ...cloud };
+            merged.students = mergeTrackedArray(cloud.students, base.students, students);
+            merged.payments = mergeTrackedArray(cloud.payments, base.payments, payments);
+            if (!sameData(paymentDeadlineDay, base.paymentDeadlineDay)) merged.paymentDeadlineDay = paymentDeadlineDay;
+            merged.updatedAt = new Date().toISOString();
+            return merged;
+        }
 
         function getMonthKey(date = new Date()) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; }
         function getUpcomingMonthKey() { const date = new Date(); date.setMonth(date.getMonth() + 1, 1); return getMonthKey(date); }
@@ -177,7 +207,18 @@
             localStorage.setItem('ecocanteen_students', JSON.stringify(students));
             localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
             localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
-            if (firebaseDatabase && cloudDataReady) firebaseDatabase.ref('mcleods-canteen').update({ students, payments, paymentDeadlineDay }).catch(error => console.error('Firebase sync failed:', error));
+            if (firebaseDatabase && cloudDataReady) {
+                if (cloudSyncInFlight) { cloudSyncQueued = true; }
+                else {
+                    cloudSyncInFlight = true;
+                    firebaseDatabase.ref('mcleods-canteen').transaction(current => buildMergedCloudState(current), (error, committed, snapshot) => {
+                        cloudSyncInFlight = false;
+                        if (error) console.error('Firebase sync failed:', error);
+                        else if (committed && snapshot?.val()) cloudBaseline = deepClone(snapshot.val());
+                        if (cloudSyncQueued) { cloudSyncQueued = false; persist(); }
+                    }, false);
+                }
+            }
             render();
         }
 
@@ -200,6 +241,9 @@
                         students = Array.isArray(data.students) ? data.students : students;
                         payments = Array.isArray(data.payments) ? data.payments : payments;
                         paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
+                        cloudBaseline = deepClone(data);
+                    } else {
+                        cloudBaseline = {};
                     }
                     cloudDataReady = true;
                     removeExpiredClosedAccounts();
@@ -207,13 +251,15 @@
                     firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
                         if (!latestData) return;
+                        if (cloudSyncInFlight) return;
+                        cloudBaseline = deepClone(latestData);
                         students = Array.isArray(latestData.students) ? latestData.students : students;
                         payments = Array.isArray(latestData.payments) ? latestData.payments : payments;
                         paymentDeadlineDay = Number(latestData.paymentDeadlineDay) || paymentDeadlineDay;
                         render();
                     });
-                }).catch(() => { cloudDataReady = true; render(); });
-            } catch { cloudDataReady = true; render(); }
+                }).catch(error => { console.error('Firebase loading failed:', error); cloudDataReady = false; render(); });
+            } catch (error) { console.error('Firebase setup failed:', error); cloudDataReady = false; render(); }
         }
 
         function login() {

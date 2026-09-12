@@ -328,6 +328,8 @@
         let currentCameraMode = 'front';
         let firebaseDatabase = null;
         let scanLocked = false;
+        let scannerStarting = false;
+        let scannerRetryTimer = null;
         let currentView = 'scanner';
         // Becomes true once we've confirmed what's actually in the cloud database.
         // Registering people or recording anything BEFORE this is true is dangerous:
@@ -336,6 +338,114 @@
         // up to Firebase. Writing too early silently resurrects that stale data
         // and overwrites whatever is really in the cloud. See addStudent/addTeacher.
         let cloudDataReady = false;
+        let cloudBaseline = null;
+        let cloudSyncInFlight = false;
+        let cloudSyncQueued = false;
+
+        function deepClone(value) {
+            return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+        }
+
+        function sameData(a, b) {
+            return JSON.stringify(a) === JSON.stringify(b);
+        }
+
+        function mergeTrackedArray(current, baseline, local) {
+            const currentList = Array.isArray(current) ? current : [];
+            const baseList = Array.isArray(baseline) ? baseline : [];
+            const localList = Array.isArray(local) ? local : [];
+            const baseById = new Map(baseList.filter(x => x && x.id != null).map(x => [String(x.id), x]));
+            const localById = new Map(localList.filter(x => x && x.id != null).map(x => [String(x.id), x]));
+            const result = currentList.filter(x => x && x.id != null).map(deepClone);
+            const resultById = new Map(result.map(x => [String(x.id), x]));
+
+            // Apply only records this device actually changed since its last cloud snapshot.
+            for (const [id, localItem] of localById) {
+                const baseItem = baseById.get(id);
+                if (!baseItem || !sameData(localItem, baseItem)) {
+                    if (resultById.has(id)) {
+                        const index = result.findIndex(x => String(x.id) === id);
+                        result[index] = deepClone(localItem);
+                    } else {
+                        result.push(deepClone(localItem));
+                    }
+                    resultById.set(id, localItem);
+                }
+            }
+
+            // A deletion is also a local change, so remove only records that existed in the baseline.
+            for (const [id] of baseById) {
+                if (!localById.has(id)) {
+                    const index = result.findIndex(x => String(x.id) === id);
+                    if (index !== -1) result.splice(index, 1);
+                }
+            }
+            return result;
+        }
+
+        function mergeStringList(current, baseline, local) {
+            const cur = Array.isArray(current) ? current : [];
+            const base = Array.isArray(baseline) ? baseline : [];
+            const loc = Array.isArray(local) ? local : [];
+            const baseSet = new Set(base);
+            const localSet = new Set(loc);
+            const result = [...cur];
+            // Preserve remote additions while applying local additions.
+            for (const value of loc) if (!result.includes(value)) result.push(value);
+            // Apply local deletions only for values that existed in this device's baseline.
+            for (const value of baseSet) {
+                if (!localSet.has(value)) {
+                    const index = result.indexOf(value);
+                    if (index !== -1) result.splice(index, 1);
+                }
+            }
+            return result;
+        }
+
+        function mergeTracker(current, baseline, local) {
+            const result = deepClone(current || {});
+            const base = baseline || {};
+            const loc = local || {};
+            const ids = new Set([...Object.keys(base), ...Object.keys(loc)]);
+            ids.forEach(id => {
+                const basePerson = base[id];
+                const localPerson = loc[id];
+                if (localPerson === undefined) {
+                    if (basePerson !== undefined) delete result[id];
+                    return;
+                }
+                if (basePerson === undefined || !sameData(localPerson, basePerson)) {
+                    result[id] = deepClone(localPerson);
+                }
+            });
+            return result;
+        }
+
+        function mergeScanLogs(current, baseline, local) {
+            const key = item => [item?.occurredAt, item?.name, item?.time, item?.category, item?.status, item?.classGroup].join('|');
+            const all = new Map();
+            [...(Array.isArray(current) ? current : []), ...(Array.isArray(local) ? local : [])].forEach(item => all.set(key(item), deepClone(item)));
+            return [...all.values()].sort((a, b) => String(b?.occurredAt || '').localeCompare(String(a?.occurredAt || '')));
+        }
+
+        function buildMergedCloudState(current) {
+            const cloud = current || {};
+            const base = cloudBaseline || {};
+            const local = { grades, divisions, students, teachers, payments, paymentDeadlineDay, dailyTracker, dailyTrackerDate, monthlyResetMonth, scanLogs };
+            const merged = { ...cloud };
+            merged.grades = mergeStringList(cloud.grades, base.grades, local.grades);
+            merged.divisions = mergeStringList(cloud.divisions, base.divisions, local.divisions);
+            merged.students = mergeTrackedArray(cloud.students, base.students, local.students);
+            merged.teachers = mergeTrackedArray(cloud.teachers, base.teachers, local.teachers);
+            merged.payments = mergeTrackedArray(cloud.payments, base.payments, local.payments);
+            merged.dailyTracker = mergeTracker(cloud.dailyTracker, base.dailyTracker, local.dailyTracker);
+            merged.scanLogs = mergeScanLogs(cloud.scanLogs, base.scanLogs, local.scanLogs);
+            if (!sameData(local.paymentDeadlineDay, base.paymentDeadlineDay)) merged.paymentDeadlineDay = local.paymentDeadlineDay;
+            if (!sameData(local.dailyTrackerDate, base.dailyTrackerDate)) merged.dailyTrackerDate = local.dailyTrackerDate;
+            if (!sameData(local.monthlyResetMonth, base.monthlyResetMonth)) merged.monthlyResetMonth = local.monthlyResetMonth;
+            merged.updatedAt = new Date().toISOString();
+            return merged;
+        }
 
         function addScanLog(entry) { scanLogs.unshift({ ...entry, occurredAt: new Date().toISOString() }); }
 
@@ -355,28 +465,21 @@
         }
 
         function syncCloudData() {
-            if (!firebaseDatabase) return;
-            if (!cloudDataReady) {
-                // Refuse to write until we know what's actually in the cloud.
-                // Writing early would push this device's possibly-stale local
-                // copy over the top of the real cloud data.
-                console.warn('Skipped cloud sync: still waiting for the initial load from Firebase.');
-                return;
-            }
-
-            firebaseDatabase.ref('mcleods-canteen').update({
-                grades,
-                divisions,
-                students,
-                teachers,
-                payments,
-                paymentDeadlineDay,
-                dailyTracker,
-                dailyTrackerDate,
-                monthlyResetMonth,
-                scanLogs,
-                updatedAt: new Date().toISOString()
-            }).catch(error => console.error('Firebase sync failed:', error));
+            if (!firebaseDatabase || !cloudDataReady) return;
+            if (cloudSyncInFlight) { cloudSyncQueued = true; return; }
+            cloudSyncInFlight = true;
+            firebaseDatabase.ref('mcleods-canteen').transaction(current => buildMergedCloudState(current), (error, committed, snapshot) => {
+                cloudSyncInFlight = false;
+                if (error) {
+                    console.error('Firebase sync failed:', error);
+                } else if (committed && snapshot?.val()) {
+                    cloudBaseline = deepClone(snapshot.val());
+                }
+                if (cloudSyncQueued) {
+                    cloudSyncQueued = false;
+                    syncCloudData();
+                }
+            }, false);
         }
 
         function loadCloudData() {
@@ -384,7 +487,7 @@
                 console.info('Firebase is not configured. Using this browser\'s local storage.');
                 cloudDataReady = true;
                 refreshUI();
-                switchView('scanner');
+                switchView(getInitialView());
                 return;
             }
 
@@ -405,17 +508,21 @@
                         monthlyResetMonth = cloudData.monthlyResetMonth || monthlyResetMonth;
                         scanLogs = Array.isArray(cloudData.scanLogs) ? cloudData.scanLogs : [];
                         cloudDataReady = true;
+                        cloudBaseline = deepClone(cloudData);
                     } else {
                         // Nothing in the cloud yet - it's safe to seed it from local data.
                         cloudDataReady = true;
+                        cloudBaseline = {};
                         syncCloudData();
                     }
                     runAutomaticResets();
                     refreshUI();
-                    switchView('scanner');
+                    switchView(getInitialView());
                     firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
                         if (!latestData) return;
+                        if (cloudSyncInFlight) return;
+                        cloudBaseline = deepClone(latestData);
                         grades = Array.isArray(latestData.grades) ? latestData.grades : grades;
                         divisions = Array.isArray(latestData.divisions) ? latestData.divisions : divisions;
                         students = Array.isArray(latestData.students) ? latestData.students : students;
@@ -434,15 +541,15 @@
                     // We couldn't confirm the cloud state, so treat this device's
                     // local copy as the only source of truth for now rather than
                     // silently blocking every save.
-                    cloudDataReady = true;
+                    cloudDataReady = false;
                     refreshUI();
-                    switchView('scanner');
+                    switchView(getInitialView());
                 });
             } catch (error) {
                 console.error('Firebase setup failed:', error);
-                cloudDataReady = true;
+                cloudDataReady = false;
                 refreshUI();
-                switchView('scanner');
+                switchView(getInitialView());
             }
         }
 
@@ -642,6 +749,14 @@
         // and compatible; new meal keys are simply added alongside them.
         function getMealTrackerKey(category) {
             return String(category || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'meal';
+        }
+
+        function getInitialView() {
+            const requestedView = new URLSearchParams(window.location.search).get('view') || '';
+            if (requestedView === 'admin' || requestedView === 'dashboard') {
+                return isAdminLoggedIn ? 'dashboard' : 'login';
+            }
+            return 'scanner';
         }
 
         function switchView(viewName) {
@@ -894,20 +1009,44 @@
             }
         }
 
-        async function initScanner() {
+        async function initScanner(retryCount = 0) {
+            if (currentView !== 'scanner' || document.visibilityState !== 'visible') return;
             if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-            if (html5QrCode.isScanning) return;
+            if (html5QrCode.isScanning || scannerStarting) return;
 
-            const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+            const config = { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0, disableFlip: false };
             const onSuccess = (decodedText) => handleScanResult(decodedText, 'qr');
             const onError = () => {};
-
+            scannerStarting = true;
             try {
                 await startCameraMode(currentCameraMode, config, onSuccess, onError);
-            } catch (error) {
-                console.log("Camera inactive or blocked", error);
+                scannerStarting = false;
                 updateCameraSwitchButton();
+                // Some browsers resolve start() before the video element has actually
+                // begun producing frames. Verify it shortly after startup.
+                setTimeout(() => verifyScanner(retryCount), 1200);
+            } catch (error) {
+                scannerStarting = false;
+                console.warn('Camera start failed', error);
+                updateCameraSwitchButton();
+                if (retryCount < 4 && currentView === 'scanner' && document.visibilityState === 'visible') {
+                    clearTimeout(scannerRetryTimer);
+                    scannerRetryTimer = setTimeout(() => initScanner(retryCount + 1), 1200);
+                }
             }
+        }
+
+        function verifyScanner(retryCount = 0) {
+            if (currentView !== 'scanner' || document.visibilityState !== 'visible' || !html5QrCode) return;
+            const reader = document.getElementById('reader');
+            const video = reader?.querySelector('video');
+            const healthy = html5QrCode.isScanning && video && video.readyState >= 2 && !video.paused;
+            if (healthy) return;
+            if (retryCount >= 4) return;
+            try {
+                if (html5QrCode.isScanning) html5QrCode.stop().catch(() => {});
+            } catch {}
+            setTimeout(() => initScanner(retryCount + 1), 500);
         }
 
         async function startCameraMode(mode, config, onSuccess, onError) {
@@ -943,7 +1082,7 @@
             }
 
             const nextMode = currentCameraMode === 'front' ? 'back' : 'front';
-            const config = { fps: 10, qrbox: { width: 220, height: 220 } };
+            const config = { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0, disableFlip: false };
             const onSuccess = (decodedText) => handleScanResult(decodedText, 'qr');
             const onError = () => {};
 
@@ -952,17 +1091,27 @@
                 currentCameraMode = nextMode;
                 updateCameraSwitchButton();
                 await startCameraMode(currentCameraMode, config, onSuccess, onError);
+                setTimeout(() => verifyScanner(0), 1200);
             } catch (error) {
-                console.log("Requested camera unavailable", error);
+                console.warn('Requested camera unavailable', error);
                 currentCameraMode = currentCameraMode === 'front' ? 'back' : 'front';
                 updateCameraSwitchButton();
                 try {
                     await startCameraMode(currentCameraMode, config, onSuccess, onError);
+                    setTimeout(() => verifyScanner(0), 1200);
                 } catch (fallbackError) {
-                    console.log("Could not restart scanner", fallbackError);
+                    console.warn('Could not restart scanner', fallbackError);
+                    initScanner(0);
                 }
             }
         }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && currentView === 'scanner') setTimeout(() => initScanner(), 250);
+        });
+        window.addEventListener('focus', () => {
+            if (currentView === 'scanner') setTimeout(() => initScanner(), 250);
+        });
 
         // --- Future biometric identification (NOT implemented) -----------------------
         // These are intentionally inert placeholders so the identification/validation
@@ -982,6 +1131,9 @@
 
 
         function stopScanner() {
+            clearTimeout(scannerRetryTimer);
+            scannerRetryTimer = null;
+            scannerStarting = false;
             if (html5QrCode && html5QrCode.isScanning) {
                 html5QrCode.stop().catch(err => {});
             }

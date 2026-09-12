@@ -137,7 +137,7 @@
             try {
                 firebase.initializeApp(firebaseConfig);
                 firebaseDatabase = firebase.database();
-                firebaseDatabase.ref('mcleods-canteen/scanLogs').on('value', snapshot => { scanLogs = Array.isArray(snapshot.val()) ? snapshot.val() : []; localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs)); renderReport(); });
+                firebaseDatabase.ref('mcleods-canteen').on('value', snapshot => { const data = snapshot.val(); if (!data) return; scanLogs = Array.isArray(data.scanLogs) ? data.scanLogs : []; localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs)); renderReport(); });
             } catch { renderReport(); }
         }
         function getFilteredLogs() {
