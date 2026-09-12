@@ -59,7 +59,8 @@
             </div>
 
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm space-y-6">
-                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Loading the latest data from the cloud - please wait a moment before recording payments or editing accounts.</p>
+                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Loading the latest data from the cloud - you can still record payments while it loads.</p>
+                <div id="payment-action-status" class="hidden text-sm rounded-lg p-3 border" role="status" aria-live="polite"></div>
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                         <h3 class="text-md font-bold text-matte-green">Renew Monthly Canteen Payment</h3>
@@ -70,7 +71,7 @@
                     <select id="payment-student" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none"></select>
                     <input id="payment-meal-month" type="month" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
                     <input id="payment-date" type="date" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
-                    <button onclick="markPaymentAsPaid()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition">Complete Payment</button>
+                    <button id="complete-payment-btn" type="button" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition">Complete Payment</button>
                 </div>
             </div>
 
@@ -88,8 +89,17 @@
     </main>
 
     <script>
-        let students = JSON.parse(localStorage.getItem('ecocanteen_students')) || [];
-        let payments = JSON.parse(localStorage.getItem('ecocanteen_payments')) || [];
+        function readStoredArray(key) {
+            try {
+                const value = JSON.parse(localStorage.getItem(key) || '[]');
+                return Array.isArray(value) ? value : [];
+            } catch (error) {
+                console.warn(`Could not read ${key} from localStorage. Starting with an empty list.`, error);
+                return [];
+            }
+        }
+        let students = readStoredArray('ecocanteen_students');
+        let payments = readStoredArray('ecocanteen_payments');
         let paymentDeadlineDay = Number(localStorage.getItem('ecocanteen_payment_deadline_day')) || 25;
         let firebaseDatabase = null;
         let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
@@ -171,7 +181,7 @@
         }
 
         let paymentCloudSyncPromise = null;
-        let pendingPaymentIds = new Set(JSON.parse(localStorage.getItem('ecocanteen_pending_payment_ids') || '[]'));
+        let pendingPaymentIds = new Set(readStoredArray('ecocanteen_pending_payment_ids'));
 
         function savePendingPaymentIds() {
             localStorage.setItem('ecocanteen_pending_payment_ids', JSON.stringify([...pendingPaymentIds]));
@@ -263,7 +273,7 @@
                     // keep that local payment instead of allowing the initial cloud read to
                     // erase it. It will be merged into the cloud in the background.
                     if (pendingPaymentIds.size) {
-                        const localPayments = JSON.parse(localStorage.getItem('ecocanteen_payments') || '[]');
+                        const localPayments = readStoredArray('ecocanteen_payments');
                         for (const localPayment of localPayments) {
                             if (pendingPaymentIds.has(localPayment.id) && !payments.some(payment => payment.id === localPayment.id)) {
                                 payments.push(localPayment);
@@ -352,48 +362,53 @@
             return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
         }
 
+        function showPaymentStatus(message, kind = 'success') {
+            const box = document.getElementById('payment-action-status');
+            if (!box) return;
+            box.textContent = message;
+            box.className = `text-sm rounded-lg p-3 border ${kind === 'error' ? 'bg-red-50 text-red-800 border-red-200' : 'bg-green-50 text-green-800 border-green-200'}`;
+            box.classList.remove('hidden');
+        }
+
         function markPaymentAsPaid() {
-            // Payment completion must never be blocked by Firebase latency. Validate the
-            // form against the current local/cloud state, commit locally immediately,
-            // then synchronize in the background.
-            const studentId = document.getElementById('payment-student').value;
-            const mealMonth = document.getElementById('payment-meal-month').value;
-            const paymentDateObj = parsePaymentDateInput(document.getElementById('payment-date').value);
-            const student = students.find(item => item.id === studentId);
+            try {
+                const studentSelect = document.getElementById('payment-student');
+                const mealMonthInput = document.getElementById('payment-meal-month');
+                const paymentDateInput = document.getElementById('payment-date');
+                if (!studentSelect || !mealMonthInput || !paymentDateInput) throw new Error('Payment form controls are missing from the page.');
 
-            if (!student || !isStudentEnrolled(student)) { alert('Select an enrolled student.'); return; }
-            if (!mealMonth) { alert('Select the meal month.'); return; }
-            if (!paymentDateObj) { alert('Pick a payment date.'); return; }
-            if (getPaidPayment(studentId, mealMonth)) {
-                alert(`${formatMealMonth(mealMonth)} is already marked as paid for ${student.name}.`);
-                return;
+                const studentId = String(studentSelect.value || '').trim();
+                const mealMonth = String(mealMonthInput.value || '').trim();
+                const paymentDateObj = parsePaymentDateInput(paymentDateInput.value);
+                const student = students.find(item => String(item.id || '').trim() === studentId);
+
+                if (!student || !isStudentEnrolled(student)) { showPaymentStatus('Please select an enrolled student.', 'error'); alert('Select an enrolled student.'); return; }
+                if (!mealMonth) { showPaymentStatus('Please select the meal month.', 'error'); alert('Select the meal month.'); return; }
+                if (!paymentDateObj) { showPaymentStatus('Please pick a payment date.', 'error'); alert('Pick a payment date.'); return; }
+                if (getPaidPayment(student.id, mealMonth)) {
+                    const message = `${formatMealMonth(mealMonth)} is already marked as paid for ${student.name}.`;
+                    showPaymentStatus(message, 'error'); alert(message); return;
+                }
+
+                const paymentDate = formatDisplayDate(paymentDateObj);
+                const expiresAt = addOneMonth(paymentDateObj).getTime();
+                const paymentId = `PAY-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+                student.paymentPaused = false;
+                payments.unshift({ id: paymentId, studentId: student.id, studentName: student.name, mealMonth, paymentDate, expiresAt, recordedAt: new Date().toLocaleString(), status: 'PAID' });
+                pendingPaymentIds.add(paymentId);
+                savePendingPaymentIds();
+
+                paymentDateInput.value = '';
+                persist();
+                const successMessage = `Payment recorded for ${student.name}. Valid through ${new Date(expiresAt - 1).toLocaleDateString('en-GB')}.`;
+                showPaymentStatus(`✓ ${successMessage}`, 'success');
+                alert(successMessage);
+            } catch (error) {
+                console.error('Complete Payment failed:', error);
+                const message = error && error.message ? error.message : 'An unexpected error occurred while recording the payment.';
+                showPaymentStatus(`Payment could not be recorded: ${message}`, 'error');
+                alert(`Payment could not be recorded. ${message}`);
             }
-
-            const paymentDate = formatDisplayDate(paymentDateObj);
-            const expiresAt = addOneMonth(paymentDateObj).getTime();
-            const paymentId = `PAY-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
-
-            student.paymentPaused = false;
-            payments.unshift({
-                id: paymentId,
-                studentId,
-                studentName: student.name,
-                mealMonth,
-                paymentDate,
-                expiresAt,
-                recordedAt: new Date().toLocaleString(),
-                status: 'PAID'
-            });
-            pendingPaymentIds.add(paymentId);
-            savePendingPaymentIds();
-
-            // The important part: update the UI/localStorage BEFORE touching Firebase.
-            // A slow/offline Firebase connection therefore cannot make the payment appear
-            // to fail. syncPaymentStateToCloud() retries whenever the cloud is ready.
-            document.getElementById('payment-date').value = '';
-            persist();
-
-            alert(`Payment recorded for ${student.name}. Canteen access is valid through ${new Date(expiresAt - 1).toLocaleDateString('en-GB')}.`);
         }
 
         function closeStudentAccount(id) {
@@ -437,7 +452,7 @@
             const syncBanner = document.getElementById('cloud-sync-banner');
             const stillLoading = isFirebaseConfigured() && !cloudDataReady;
             if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
-            const completeBtn = document.querySelector('[onclick="markPaymentAsPaid()"]');
+            const completeBtn = document.getElementById('complete-payment-btn');
             if (completeBtn) { completeBtn.disabled = false; completeBtn.classList.remove('opacity-50', 'cursor-not-allowed'); }
 
             const select = document.getElementById('payment-student');
@@ -455,6 +470,19 @@
             }).join('') : '<tr><td colspan="5" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>';
             document.getElementById('payment-audit-table-body').innerHTML = payments.length ? payments.map(payment => `<tr class="border-b border-gray-100"><td class="p-3 text-xs text-gray-500">${payment.paymentDate || 'Not recorded'}</td><td class="p-3 font-medium">${payment.studentName}</td><td class="p-3 text-xs">${formatMealMonth(payment.mealMonth)}</td></tr>`).join('') : '<tr><td colspan="3" class="p-4 text-center text-gray-400">No payments recorded yet.</td></tr>';
         }
+
+        const completePaymentButton = document.getElementById('complete-payment-btn');
+        if (completePaymentButton) completePaymentButton.addEventListener('click', markPaymentAsPaid);
+
+        window.addEventListener('error', event => {
+            console.error('Canteen page error:', event.error || event.message);
+            const box = document.getElementById('payment-action-status');
+            if (box) {
+                box.textContent = `Page error: ${event.message || 'Unknown JavaScript error'}`;
+                box.className = 'text-sm rounded-lg p-3 border bg-red-50 text-red-800 border-red-200';
+                box.classList.remove('hidden');
+            }
+        });
 
         if (sessionStorage.getItem('ecocanteen_admin_session') === 'true') showApp();
         else document.getElementById('payment-login').classList.remove('hidden');
