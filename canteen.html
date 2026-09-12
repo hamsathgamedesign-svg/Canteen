@@ -83,7 +83,10 @@
                     <label class="block text-sm font-semibold mb-1">Select Meal Category:</label>
                     <select id="active-meal-category" class="w-full border border-gray-300 rounded-lg p-2.5 bg-[#f4f6f0] font-medium outline-none">
                         <option value="Breakfast">Breakfast</option>
+                        <option value="Mid-Morning">Mid-Morning</option>
                         <option value="Lunch">Lunch</option>
+                        <option value="Mid-Evening">Mid-Evening</option>
+                        <option value="Dinner">Dinner</option>
                     </select>
                     <p class="text-xs text-gray-500 mt-1">Breakfast is only available for Grade 1 and Grade 2 students.</p>
                 </div>
@@ -92,6 +95,7 @@
                 <div class="mb-4">
                     <label class="block text-sm font-semibold mb-1">Scan QR via Camera:</label>
                     <div id="reader" class="w-full rounded-lg overflow-hidden border border-gray-300 bg-black"></div>
+                    <button id="camera-switch-btn" onclick="switchCamera()" class="hidden mt-2 w-full text-xs font-semibold bg-[#d8e2dc] text-[#2d4a3e] px-3 py-2 rounded-lg hover:bg-[#c6d5cd] transition">🔄 Use Back Camera</button>
                 </div>
 
                 <!-- Fallback Manual ID Input -->
@@ -112,23 +116,18 @@
         <!---------------- VIEW 2: ADMIN LOGIN ---------------->
         <div id="view-admin-login" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
             <h2 class="text-xl font-bold text-matte-green mb-2">Admin Portal Login</h2>
-            <p class="text-xs text-gray-500 mb-6">Two security layers protect access to student and teacher records.</p>
-            <form id="admin-login-form" class="space-y-4" onsubmit="event.preventDefault(); document.getElementById('admin-second-step').classList.contains('hidden') ? processAdminLogin() : verifyAdminSecurityKey();">
-                <div id="admin-first-step">
+            <p class="text-xs text-gray-500 mb-6">Login To The Admin Account to Access The Admin Dashboard</p>
+            <div class="space-y-4">
+                <div>
                     <label class="block text-sm font-medium mb-1">Username</label>
-                    <input type="text" id="admin-user" autocomplete="username" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="Username" required>
-                    <label class="block text-sm font-medium mb-1 mt-4">Password</label>
-                    <input type="password" id="admin-pass" autocomplete="current-password" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="Password" required>
-                    <button type="submit" class="w-full btn-matte font-bold p-3 rounded-lg transition mt-4">Login</button>
+                    <input type="text" id="admin-user" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="admin">
                 </div>
-                <div id="admin-second-step" class="hidden">
-                    <p class="text-sm font-semibold text-matte-green mb-1">Second security layer</p>
-                    <p class="text-xs text-gray-500 mb-4">Enter the security phrase to protect student and teacher records.</p>
-                    <label class="block text-sm font-medium mb-1">Security phrase</label>
-                    <input type="password" id="admin-security-key" autocomplete="one-time-code" disabled class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="Security phrase" required>
-                    <button type="submit" class="w-full btn-matte font-bold p-3 rounded-lg transition mt-4">Unlock Admin Dashboard</button>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Password</label>
+                    <input type="password" id="admin-pass" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="••••••••">
                 </div>
-            </form>
+                <button onclick="processAdminLogin()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Login</button>
+            </div>
         </div>
 
         <!---------------- VIEW 3: ADMIN DASHBOARD ---------------->
@@ -139,7 +138,7 @@
                     <p class="text-xs text-gray-500">Manage Classes, Divisions, Students, and Badges</p>
                 </div>
                 <div class="flex gap-2">
-                    <a href="monthly-payments.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Monthly Payments</a>
+                    <a href="payments.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Monthly Payments</a>
                     <a href="reports.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Reports</a>
                     <button onclick="adminLogout()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-200 transition">Log Out</button>
                 </div>
@@ -426,15 +425,12 @@
 
             if (monthlyResetMonth !== thisMonth) {
                 monthlyResetMonth = thisMonth;
-                dailyTracker = {};
-                // A new meal month requires a payment for that month. Keep this
-                // status on the account so staff can see which accounts need action.
-                students.forEach(student => {
-                    if (isStudentEnrolled(student) && !getPaidPayment(student.id, thisMonth)) {
-                        student.paymentPaused = true;
-                    }
-                });
                 dataChanged = true;
+                // Note: canteen access is no longer auto-paused on a calendar-month
+                // boundary. Each payment is valid for exactly one month from its own
+                // payment date (see isPaymentCurrentlyValid), so eligibility is now
+                // checked live at scan time in handleScanResult instead of being
+                // batch-updated here.
             }
             if (dailyTrackerDate !== today) {
                 dailyTrackerDate = today;
@@ -485,6 +481,42 @@
             return payments.find(payment => payment.studentId === studentId && payment.mealMonth === mealMonth && payment.status === 'PAID');
         }
 
+        // --- Date-anchored payment expiry ---------------------------------------------
+        // A payment is valid from its payment date until 00:00 on that same day the
+        // following month (pay 11/09 -> valid through 10/10, expired from 11/10 00:00).
+        // See payments.html for where `expiresAt` is normally computed and stored on a
+        // payment record. For older records saved before this feature existed (no
+        // expiresAt field), the expiry is derived from paymentDate here instead of
+        // treating them as unpaid, so past payments keep working correctly.
+        function addOneMonth(date) {
+            const day = date.getDate();
+            const result = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+            const daysInTargetMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+            result.setDate(Math.min(day, daysInTargetMonth));
+            result.setHours(0, 0, 0, 0);
+            return result;
+        }
+        function parseDisplayDate(value) {
+            const match = String(value || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            if (!match) return null;
+            const [, day, month, year] = match.map(Number);
+            const date = new Date(year, month - 1, day);
+            return (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) ? date : null;
+        }
+        function getPaymentExpiry(payment) {
+            if (Number.isFinite(payment.expiresAt)) return payment.expiresAt;
+            const parsedDate = parseDisplayDate(payment.paymentDate);
+            return parsedDate ? addOneMonth(parsedDate).getTime() : null;
+        }
+        function getLatestPaymentExpiry(studentId) {
+            const expiries = payments.filter(p => p.studentId === studentId && p.status === 'PAID').map(getPaymentExpiry).filter(e => e !== null);
+            return expiries.length ? Math.max(...expiries) : null;
+        }
+        function isPaymentCurrentlyValid(studentId, asOf = Date.now()) {
+            const expiresAt = getLatestPaymentExpiry(studentId);
+            return expiresAt !== null && asOf < expiresAt;
+        }
+
         function isFeePaused(student) {
             return student.paymentPaused === true;
         }
@@ -514,12 +546,26 @@
 
         // Single source of truth for the breakfast rule: Grade 1 and Grade 2 only.
         // Grade 3 and above - and any student whose grade can't be confidently parsed -
-        // are not eligible for breakfast (they can still claim lunch as normal). This
-        // rule applies to students only; teachers are not graded and are unaffected.
+        // are not eligible for breakfast (they can still claim the other meals as
+        // normal). This rule applies to students only; teachers are not graded and
+        // are unaffected.
         function isBreakfastAvailableForStudent(student) {
             const grade = getNumericGrade(student && student.grade);
             if (grade === null) return false; // Unknown/unparseable grade - fail safe, no breakfast.
             return grade === 1 || grade === 2;
+        }
+
+        // --- Per-meal daily tracking --------------------------------------------------
+        // Each of the five meal categories (Breakfast, Mid-Morning, Lunch, Mid-Evening,
+        // Dinner) is tracked independently per person per day, keyed by a normalised
+        // version of the category name (e.g. "Mid-Morning" -> "mid_morning"). Claiming
+        // one meal never affects the availability of any other meal. This works for any
+        // category string, so adding/renaming meals in future only means updating the
+        // dropdown - no tracker changes are needed. Old records that only have
+        // {breakfast, lunch} boolean fields (from before this update) remain untouched
+        // and compatible; new meal keys are simply added alongside them.
+        function getMealTrackerKey(category) {
+            return String(category || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'meal';
         }
 
         function switchView(viewName) {
@@ -553,113 +599,20 @@
             if (isAdminLoggedIn) switchView('dashboard');
             else switchView('login');
         }
-        // --- Two-layer admin security -----------------------------------------------
-        // PBKDF2 hashes avoid storing the actual passwords in plaintext in the page.
-        // A five-attempt lockout slows repeated guessing on each browser session.
-        const ADMIN_USERNAME = 'CanteenGuardian';
-        const ADMIN_PASSWORD_SALT = 'canteen-admin-v2-salt';
-        const ADMIN_PASSWORD_HASH = 'dc03464a9f8a20351543415a795db5c91b89a412d5c4a14eaddd0612daad9229';
-        const ADMIN_SECURITY_SALT = 'canteen-admin-v2-factor';
-        const ADMIN_SECURITY_HASH = '2f379d953139f9fe039845dc7e4543c1366fa566c6d1cc48b6b2bdfb66e1dc02';
-        const ADMIN_SECURITY_ATTEMPTS_KEY = 'ecocanteen_admin_security_attempts';
-        const ADMIN_SECURITY_LOCK_KEY = 'ecocanteen_admin_security_lock_until';
 
-        function bytesToHex(buffer) {
-            return Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-
-        async function secureCredentialHash(value, salt) {
-            if (!window.crypto || !window.crypto.subtle) throw new Error('Secure browser cryptography is unavailable.');
-            const encoder = new TextEncoder();
-            const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(value), 'PBKDF2', false, ['deriveBits']);
-            const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations: 310000, hash: 'SHA-256' }, keyMaterial, 256);
-            return bytesToHex(bits);
-        }
-
-        function securityLocked() {
-            const until = Number(sessionStorage.getItem(ADMIN_SECURITY_LOCK_KEY) || 0);
-            if (until > Date.now()) return true;
-            sessionStorage.removeItem(ADMIN_SECURITY_LOCK_KEY);
-            return false;
-        }
-
-        function registerSecurityFailure() {
-            const attempts = Number(sessionStorage.getItem(ADMIN_SECURITY_ATTEMPTS_KEY) || 0) + 1;
-            sessionStorage.setItem(ADMIN_SECURITY_ATTEMPTS_KEY, String(attempts));
-            if (attempts >= 5) {
-                sessionStorage.setItem(ADMIN_SECURITY_LOCK_KEY, String(Date.now() + 30000));
-                sessionStorage.setItem(ADMIN_SECURITY_ATTEMPTS_KEY, '0');
-                alert('Too many failed attempts. Please wait 30 seconds before trying again.');
-            } else {
-                alert('Invalid security credentials.');
-            }
-        }
-
-        function clearSecurityState() {
-            sessionStorage.removeItem(ADMIN_SECURITY_ATTEMPTS_KEY);
-            sessionStorage.removeItem(ADMIN_SECURITY_LOCK_KEY);
-        }
-
-        function resetSecurityLoginForm() {
-            const first = document.getElementById('admin-first-step');
-            const second = document.getElementById('admin-second-step');
-            if (first) {
-                first.classList.remove('hidden');
-                first.querySelectorAll('input').forEach(input => { input.disabled = false; });
-            }
-            if (second) {
-                second.classList.add('hidden');
-                const input = document.getElementById('admin-security-key');
-                if (input) { input.value = ''; input.disabled = true; }
-            }
-        }
-
-        function showSecurityStep() {
-            const first = document.getElementById('admin-first-step');
-            const second = document.getElementById('admin-second-step');
-            if (first) {
-                first.classList.add('hidden');
-                first.querySelectorAll('input').forEach(input => { input.disabled = true; });
-            }
-            if (second) {
-                second.classList.remove('hidden');
-                const input = document.getElementById('admin-security-key');
-                if (input) { input.disabled = false; input.value = ''; setTimeout(() => input.focus(), 50); }
-            }
-        }
-
-        async function processAdminLogin() {
-            if (securityLocked()) { alert('Too many failed attempts. Please wait 30 seconds before trying again.'); return; }
-            const username = document.getElementById('admin-user').value.trim();
-            const password = document.getElementById('admin-pass').value;
-            try {
-                const hash = await secureCredentialHash(password, ADMIN_PASSWORD_SALT);
-                if (username !== ADMIN_USERNAME || hash !== ADMIN_PASSWORD_HASH) { registerSecurityFailure(); return; }
-                document.getElementById('admin-pass').value = '';
-                showSecurityStep();
-            } catch (error) {
-                console.error(error);
-                alert('This browser cannot start the secure login. Please use an up-to-date browser over HTTPS.');
-            }
-        }
-
-        async function verifyAdminSecurityKey() {
-            if (securityLocked()) { alert('Too many failed attempts. Please wait 30 seconds before trying again.'); return; }
-            const key = document.getElementById('admin-security-key').value;
-            try {
-                const hash = await secureCredentialHash(key, ADMIN_SECURITY_SALT);
-                if (hash !== ADMIN_SECURITY_HASH) { registerSecurityFailure(); return; }
-                clearSecurityState();
+        function processAdminLogin() {
+            const u = document.getElementById('admin-user').value;
+            const p = document.getElementById('admin-pass').value;
+            if (u === 'admin' && p === 'canteen123') {
                 isAdminLoggedIn = true;
-                currentAdminName = ADMIN_USERNAME;
+                currentAdminName = u;
                 sessionStorage.setItem('ecocanteen_admin_session', 'true');
                 sessionStorage.setItem('ecocanteen_admin_name', currentAdminName);
-                document.getElementById('admin-security-key').value = '';
+                document.getElementById('admin-pass').value = '';
                 refreshUI();
                 switchView('dashboard');
-            } catch (error) {
-                console.error(error);
-                alert('This browser cannot start the secure login. Please use an up-to-date browser over HTTPS.');
+            } else {
+                alert('Invalid credentials!');
             }
         }
 
@@ -668,8 +621,6 @@
             currentAdminName = '';
             sessionStorage.removeItem('ecocanteen_admin_session');
             sessionStorage.removeItem('ecocanteen_admin_name');
-            clearSecurityState();
-            resetSecurityLoginForm();
             switchView('scanner');
         }
 
@@ -761,10 +712,12 @@
                     saveAppData();
                     return;
                 }
-                const currentMealMonth = getMonthKey();
-                if (!getPaidPayment(person.id, currentMealMonth)) {
+                if (!isPaymentCurrentlyValid(person.id)) {
+                    const lastExpiry = getLatestPaymentExpiry(person.id);
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `💳 PAYMENT REQUIRED: ${person.name} has not paid for <b>${formatMealMonth(currentMealMonth)}</b> meals.`;
+                    feedbackEl.innerHTML = lastExpiry
+                        ? `💳 PAYMENT REQUIRED: ${person.name}'s canteen payment expired on <b>${new Date(lastExpiry).toLocaleDateString('en-GB')}</b>.`
+                        : `💳 PAYMENT REQUIRED: ${person.name} has no canteen payment on record.`;
                     addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Payment Required)' });
                     saveAppData();
                     return;
@@ -802,16 +755,16 @@
             }
 
             const classGroup = student ? `${student.grade} / ${student.division}` : 'Teacher';
-            if (!dailyTracker[person.id]) dailyTracker[person.id] = { breakfast: false, lunch: false };
-            let claimed = category === 'Breakfast' ? dailyTracker[person.id].breakfast : dailyTracker[person.id].lunch;
+            if (!dailyTracker[person.id]) dailyTracker[person.id] = {};
+            const mealKey = getMealTrackerKey(category);
+            let claimed = dailyTracker[person.id][mealKey] === true;
 
             if (claimed) {
                 feedbackEl.className = "mt-4 p-4 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 font-bold block text-sm";
                 feedbackEl.innerHTML = `❌ REJECTED: ${person.name} (${classGroup}) already claimed <b>${category}</b> today!`;
                 addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Rejected (Duplicate)' });
             } else {
-                if (category === 'Breakfast') dailyTracker[person.id].breakfast = true;
-                if (category === 'Lunch') dailyTracker[person.id].lunch = true;
+                dailyTracker[person.id][mealKey] = true;
 
                 feedbackEl.className = "mt-4 p-4 rounded-xl bg-[#d8e2dc] text-[#2d4a3e] border border-[#b2c4bc] font-bold block text-sm";
                 feedbackEl.innerHTML = `✅ SUCCESS: ${category} recorded for <b>${person.name}</b> [${classGroup}]`;
@@ -828,14 +781,107 @@
             }
         }
 
+        // --- QR scanner camera --------------------------------------------------------
+        // Uses the FRONT camera by default (facingMode: "user"), since staff hold a
+        // student's QR badge up to the tablet/phone screen facing them, not away from
+        // them. A "🔄 Use Back Camera" button lets staff switch to the rear camera when
+        // needed (e.g. scanning a badge held further away). On a device that only has
+        // one camera (e.g. a laptop webcam), there's nothing to switch to, so the
+        // button stays hidden and that single camera is used automatically. This is
+        // still plain QR scanning - no face recognition is involved (see
+        // identifyWithFace() below, which remains a not-yet-implemented placeholder).
+        let currentCameraFacing = 'user';
+        let availableCameraList = [];
+        let isSwitchingCamera = false;
+
+        function updateCameraSwitchButton() {
+            const btn = document.getElementById('camera-switch-btn');
+            if (!btn) return;
+            // Nothing to switch to on a single-camera device.
+            btn.classList.toggle('hidden', availableCameraList.length < 2);
+            btn.textContent = currentCameraFacing === 'user' ? '🔄 Use Back Camera' : '🔄 Use Front Camera';
+        }
+
+        function startCameraStream(constraint, scanConfig, onScanSuccess, onScanFailure) {
+            return html5QrCode.start(constraint, scanConfig, onScanSuccess, onScanFailure);
+        }
+
         function initScanner() {
             if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-            html5QrCode.start(
-                { facingMode: "environment" },
-                { fps: 10, qrbox: { width: 220, height: 220 } },
-                (decodedText) => handleScanResult(decodedText, 'qr'),
-                (err) => {}
-            ).catch(err => console.log("Camera inactive or blocked"));
+            const scanConfig = { fps: 10, qrbox: { width: 220, height: 220 } };
+            const onScanSuccess = (decodedText) => handleScanResult(decodedText, 'qr');
+            const onScanFailure = (err) => {};
+
+            // Find out how many cameras this device actually has so we know whether
+            // the switch button is worth showing at all.
+            Html5Qrcode.getCameras().then(cameras => {
+                availableCameraList = cameras || [];
+                updateCameraSwitchButton();
+            }).catch(() => { availableCameraList = []; });
+
+            currentCameraFacing = 'user';
+            startCameraStream({ facingMode: "user" }, scanConfig, onScanSuccess, onScanFailure)
+                .then(() => updateCameraSwitchButton())
+                .catch(() => {
+                    // Front camera wasn't available/matched (common on devices with
+                    // only one camera). Ask the browser what cameras actually exist
+                    // and use whichever one is available instead.
+                    Html5Qrcode.getCameras().then(cameras => {
+                        availableCameraList = cameras || [];
+                        if (!availableCameraList.length) {
+                            console.log("No camera available on this device.");
+                            const feedbackEl = document.getElementById('scan-feedback');
+                            if (feedbackEl) {
+                                feedbackEl.className = "mt-4 p-4 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 font-bold block text-sm";
+                                feedbackEl.innerHTML = "📷 No camera detected or permission was denied. You can still use manual ID entry below.";
+                            }
+                            return;
+                        }
+                        currentCameraFacing = 'environment';
+                        startCameraStream(availableCameraList[0].id, scanConfig, onScanSuccess, onScanFailure)
+                            .then(() => updateCameraSwitchButton())
+                            .catch(err => console.log("Camera inactive or blocked", err));
+                    }).catch(err => console.log("Unable to list cameras", err));
+                });
+        }
+
+        // Swaps between the front and back camera. Always fully stops the current
+        // stream before starting a new one - html5-qrcode (and the underlying browser
+        // camera API) does not support starting a second stream while one is already
+        // running, so skipping the stop step is a common cause of a frozen/blank
+        // scanner. isSwitchingCamera guards against double-clicks triggering overlapping
+        // stop/start calls.
+        function switchCamera() {
+            if (!html5QrCode || isSwitchingCamera) return;
+            if (availableCameraList.length < 2) return; // nothing to switch to
+            isSwitchingCamera = true;
+            const btn = document.getElementById('camera-switch-btn');
+            if (btn) { btn.disabled = true; btn.classList.add('opacity-50'); }
+
+            const scanConfig = { fps: 10, qrbox: { width: 220, height: 220 } };
+            const onScanSuccess = (decodedText) => handleScanResult(decodedText, 'qr');
+            const onScanFailure = (err) => {};
+            const nextFacing = currentCameraFacing === 'user' ? 'environment' : 'user';
+
+            const stopCurrent = html5QrCode.isScanning ? html5QrCode.stop() : Promise.resolve();
+            stopCurrent
+                .catch(() => {}) // even if stop() reports an error, try to proceed to start the new camera
+                .then(() => startCameraStream({ facingMode: nextFacing }, scanConfig, onScanSuccess, onScanFailure))
+                .then(() => { currentCameraFacing = nextFacing; })
+                .catch(() => {
+                    // The requested facing mode didn't match a camera. Fall back to
+                    // whichever camera in the enumerated list isn't the one already
+                    // in use, so the button still does *something* useful.
+                    const fallbackCamera = availableCameraList.find(c => c.id !== (availableCameraList[0] && availableCameraList[0].id)) || availableCameraList[0];
+                    return startCameraStream(fallbackCamera.id, scanConfig, onScanSuccess, onScanFailure)
+                        .then(() => { currentCameraFacing = nextFacing; })
+                        .catch(err => console.log("Could not switch camera", err));
+                })
+                .finally(() => {
+                    isSwitchingCamera = false;
+                    if (btn) { btn.disabled = false; btn.classList.remove('opacity-50'); }
+                    updateCameraSwitchButton();
+                });
         }
 
         // --- Future biometric identification (NOT implemented) -----------------------
@@ -853,12 +899,11 @@
             console.info('Face recognition is not implemented yet.');
         }
 
-
-
         function stopScanner() {
             if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().catch(err => {});
+                return html5QrCode.stop().catch(err => {});
             }
+            return Promise.resolve();
         }
 
         function refreshUI() {
