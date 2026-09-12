@@ -98,8 +98,14 @@
                 return [];
             }
         }
-        let students = readStoredArray('ecocanteen_students');
-        let payments = readStoredArray('ecocanteen_payments');
+        function cleanStudents(value) {
+            return Array.isArray(value) ? value.filter(student => student && typeof student === 'object') : [];
+        }
+        function cleanPayments(value) {
+            return Array.isArray(value) ? value.filter(payment => payment && typeof payment === 'object') : [];
+        }
+        let students = cleanStudents(readStoredArray('ecocanteen_students'));
+        let payments = cleanPayments(readStoredArray('ecocanteen_payments'));
         let paymentDeadlineDay = Number(localStorage.getItem('ecocanteen_payment_deadline_day')) || 25;
         let firebaseDatabase = null;
         let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
@@ -126,7 +132,7 @@
         function getUpcomingMonthKey() { const date = new Date(); date.setMonth(date.getMonth() + 1, 1); return getMonthKey(date); }
         function formatMealMonth(monthKey) { const [year, month] = monthKey.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)); }
         function isStudentEnrolled(student) { return student.enrolled !== false; }
-        function getPaidPayment(studentId, mealMonth) { return payments.find(payment => payment.studentId === studentId && payment.mealMonth === mealMonth && payment.status === 'PAID'); }
+        function getPaidPayment(studentId, mealMonth) { return payments.find(payment => payment && String(payment.studentId || '').trim() === String(studentId || '').trim() && payment.mealMonth === mealMonth && payment.status === 'PAID'); }
 
         // --- Date-anchored payment expiry ---------------------------------------------
         // A payment is valid for exactly one month from the date it was PAID (not the
@@ -173,6 +179,8 @@
         // Persist locally first. Cloud synchronization is deliberately non-blocking so
         // recording a payment never depends on Firebase responding quickly enough.
         function persist() {
+            students = cleanStudents(students);
+            payments = cleanPayments(payments);
             localStorage.setItem('ecocanteen_students', JSON.stringify(students));
             localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
             localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
@@ -193,8 +201,8 @@
 
             paymentCloudSyncPromise = firebaseDatabase.ref('mcleods-canteen').transaction(current => {
                 const cloud = current && typeof current === 'object' ? current : {};
-                const cloudStudents = Array.isArray(cloud.students) ? cloud.students : [];
-                const cloudPayments = Array.isArray(cloud.payments) ? cloud.payments : [];
+                const cloudStudents = cleanStudents(cloud.students);
+                const cloudPayments = cleanPayments(cloud.payments);
                 const localStudentById = new Map(students.map(student => [student.id, student]));
 
                 // Merge by ID rather than replacing the whole arrays. This prevents a
@@ -219,7 +227,7 @@
                 payments = Array.isArray(data.payments) ? data.payments : payments;
                 paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
                 for (const id of [...pendingPaymentIds]) {
-                    if (payments.some(payment => payment.id === id)) pendingPaymentIds.delete(id);
+                    if (payments.some(payment => payment && payment.id === id)) pendingPaymentIds.delete(id);
                 }
                 savePendingPaymentIds();
                 localStorage.setItem('ecocanteen_students', JSON.stringify(students));
@@ -263,8 +271,8 @@
                     clearTimeout(cloudTimeoutId);
                     const data = snapshot.val();
                     if (data) {
-                        students = Array.isArray(data.students) ? data.students : students;
-                        payments = Array.isArray(data.payments) ? data.payments : payments;
+                        students = Array.isArray(data.students) ? cleanStudents(data.students) : students;
+                        payments = Array.isArray(data.payments) ? cleanPayments(data.payments) : payments;
                         paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
                     }
                     cloudDataReady = true;
@@ -286,10 +294,10 @@
                     firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
                         if (!latestData) return;
-                        students = Array.isArray(latestData.students) ? latestData.students : students;
-                        const latestPayments = Array.isArray(latestData.payments) ? latestData.payments : payments;
-                        const localPendingPayments = payments.filter(payment => pendingPaymentIds.has(payment.id));
-                        payments = latestPayments.slice();
+                        students = Array.isArray(latestData.students) ? cleanStudents(latestData.students) : students;
+                        const latestPayments = Array.isArray(latestData.payments) ? cleanPayments(latestData.payments) : payments;
+                        const localPendingPayments = payments.filter(payment => payment && pendingPaymentIds.has(payment.id));
+                        payments = cleanPayments(latestPayments.slice());
                         for (const pendingPayment of localPendingPayments) {
                             if (!payments.some(payment => payment.id === pendingPayment.id)) payments.push(pendingPayment);
                         }
@@ -457,6 +465,8 @@
 
             const select = document.getElementById('payment-student');
             const previousSelection = select.value;
+            students = cleanStudents(students);
+            payments = cleanPayments(payments);
             const enrolledStudents = students.filter(isStudentEnrolled);
             select.innerHTML = enrolledStudents.length ? enrolledStudents.map(student => `<option value="${student.id}">${student.name} (${student.id})</option>`).join('') : '<option value="">No enrolled students available</option>';
             if (enrolledStudents.some(student => student.id === previousSelection)) select.value = previousSelection;
