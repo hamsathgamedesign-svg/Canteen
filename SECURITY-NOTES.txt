@@ -1,8 +1,8 @@
 McLEOD's English School Canteen Monitor - Security v2
 
-Admin username: CanteenGuardian
-Admin password: River!Mango!47
-Second security phrase: Blue-River!Pine!82
+Admin username: admin
+Admin password: canteen123
+Second security phrase: mcleods-secure-2026
 
 The admin login now has two steps. The first step checks the username/password and the second checks the security phrase. Credentials are verified with PBKDF2-SHA-256 (310,000 iterations) and failed attempts are rate-limited.
 
