@@ -1,0 +1,9 @@
+McLEOD's English School Canteen Monitor - Security v2
+
+Admin username: CanteenGuardian
+Admin password: River!Mango!47
+Second security phrase: Blue-River!Pine!82
+
+The admin login now has two steps. The first step checks the username/password and the second checks the security phrase. Credentials are verified with PBKDF2-SHA-256 (310,000 iterations) and failed attempts are rate-limited.
+
+Important: this is client-side application security. For strong protection of student/teacher data, Firebase Authentication and restrictive Realtime Database Security Rules should also be enabled so the database cannot be read or written directly without authentication.

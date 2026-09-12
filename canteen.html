@@ -11,22 +11,6 @@
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
     <style>
-        /* McLEOD's English School watermark: sits above the page background but behind all content. */
-        body { position: relative; isolation: isolate; }
-        body::before {
-            content: "";
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            pointer-events: none;
-            background-image: url("Not needed/McLeod's English School LOGO.png");
-            background-repeat: no-repeat;
-            background-position: center center;
-            background-size: min(72vw, 820px) auto;
-            opacity: 0.25;
-        }
-        body > * { position: relative; z-index: auto; }
-
         body { background-color: #f4f6f0; color: #2d3732; }
         .bg-matte-green { background-color: #2d4a3e; }
         .text-matte-green { color: #2d4a3e; }
@@ -72,44 +56,9 @@
             .badge-title { font-size: 16pt; }
             .badge-footer { font-size: 10pt; }
         }
-    
-        /* 90% transparent logo watermark: below all website content, with the live camera/scanner above it. */
-        body::after {
-            content: "";
-            position: fixed;
-            inset: 0;
-            z-index: 10000;
-            pointer-events: none;
-            background-image: url("Not needed/McLeod's English School LOGO.png");
-            background-repeat: no-repeat;
-            background-position: center center;
-            background-size: min(72vw, 820px) auto;
-            opacity: 0.10;
-        }
-
-        /* Keep only the live scanner/camera above the watermark. */
-        #reader { position: relative; z-index: 10001; }
-</style>
-<style>
-#scan-result-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:10002;padding:20px}
-#scan-result-modal.show{display:flex}
-.scan-result-card{width:min(440px,100%);background:#fff;border-radius:24px;padding:28px;text-align:center;box-shadow:0 25px 70px rgba(0,0,0,.3);animation:scanPop .18s ease-out}
-.scan-result-icon{font-size:56px;line-height:1;margin-bottom:12px}.scan-result-title{font-size:30px;font-weight:900;margin-bottom:10px}.scan-result-message{font-size:16px;line-height:1.5;color:#4b5563}.scan-result-close{margin-top:22px;width:100%;padding:12px 18px;border:0;border-radius:14px;background:#2d4a3e;color:#fff;font-weight:800;cursor:pointer}
-.scan-result-card.accepted{border:4px solid #86efac}.scan-result-card.rejected{border:4px solid #fca5a5}.scan-result-card.warning{border:4px solid #fcd34d}
-@keyframes scanPop{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
-</style>
+    </style>
 </head>
 <body class="min-h-screen flex flex-col">
-
-    <!-- Scan Result Popup -->
-    <div id="scan-result-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="scan-result-title">
-        <div id="scan-result-card" class="scan-result-card rejected">
-            <div id="scan-result-icon" class="scan-result-icon">❌</div>
-            <div id="scan-result-title" class="scan-result-title">REJECTED</div>
-            <div id="scan-result-message" class="scan-result-message"></div>
-            <button type="button" class="scan-result-close" onclick="closeScanResult()">OK</button>
-        </div>
-    </div>
 
     <!-- Header Navigation -->
     <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
@@ -134,10 +83,7 @@
                     <label class="block text-sm font-semibold mb-1">Select Meal Category:</label>
                     <select id="active-meal-category" class="w-full border border-gray-300 rounded-lg p-2.5 bg-[#f4f6f0] font-medium outline-none">
                         <option value="Breakfast">Breakfast</option>
-                        <option value="Mid-Morning">Mid-Morning</option>
                         <option value="Lunch">Lunch</option>
-                        <option value="Mid-Evening">Mid-Evening</option>
-                        <option value="Dinner">Dinner</option>
                     </select>
                     <p class="text-xs text-gray-500 mt-1">Breakfast is only available for Grade 1 and Grade 2 students.</p>
                 </div>
@@ -146,7 +92,6 @@
                 <div class="mb-4">
                     <label class="block text-sm font-semibold mb-1">Scan QR via Camera:</label>
                     <div id="reader" class="w-full rounded-lg overflow-hidden border border-gray-300 bg-black"></div>
-                    <button id="camera-switch-button" type="button" onclick="switchCamera()" class="mt-3 w-full px-4 py-2.5 rounded-lg bg-[#3c5f51] hover:bg-[#476f5f] text-white font-semibold text-sm transition">🔄 Use Back Camera</button>
                 </div>
 
                 <!-- Fallback Manual ID Input -->
@@ -167,18 +112,23 @@
         <!---------------- VIEW 2: ADMIN LOGIN ---------------->
         <div id="view-admin-login" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
             <h2 class="text-xl font-bold text-matte-green mb-2">Admin Portal Login</h2>
-            <p class="text-xs text-gray-500 mb-6">Login To The Admin Account to Access The Admin Dashboard</p>
-            <div class="space-y-4">
-                <div>
+            <p class="text-xs text-gray-500 mb-6">Two security layers protect access to student and teacher records.</p>
+            <form id="admin-login-form" class="space-y-4" onsubmit="event.preventDefault(); document.getElementById('admin-second-step').classList.contains('hidden') ? processAdminLogin() : verifyAdminSecurityKey();">
+                <div id="admin-first-step">
                     <label class="block text-sm font-medium mb-1">Username</label>
-                    <input type="text" id="admin-user" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="admin">
+                    <input type="text" id="admin-user" autocomplete="username" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="Username" required>
+                    <label class="block text-sm font-medium mb-1 mt-4">Password</label>
+                    <input type="password" id="admin-pass" autocomplete="current-password" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="Password" required>
+                    <button type="submit" class="w-full btn-matte font-bold p-3 rounded-lg transition mt-4">Login</button>
                 </div>
-                <div>
-                    <label class="block text-sm font-medium mb-1">Password</label>
-                    <input type="password" id="admin-pass" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="••••••••">
+                <div id="admin-second-step" class="hidden">
+                    <p class="text-sm font-semibold text-matte-green mb-1">Second security layer</p>
+                    <p class="text-xs text-gray-500 mb-4">Enter the security phrase to protect student and teacher records.</p>
+                    <label class="block text-sm font-medium mb-1">Security phrase</label>
+                    <input type="password" id="admin-security-key" autocomplete="one-time-code" disabled class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="Security phrase" required>
+                    <button type="submit" class="w-full btn-matte font-bold p-3 rounded-lg transition mt-4">Unlock Admin Dashboard</button>
                 </div>
-                <button onclick="processAdminLogin()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Login</button>
-            </div>
+            </form>
         </div>
 
         <!---------------- VIEW 3: ADMIN DASHBOARD ---------------->
@@ -215,7 +165,7 @@
 
             <!-- Registration Forms -->
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm space-y-6">
-                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Connecting to the cloud database…</p>
+                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Loading the latest data from the cloud - please wait a moment before adding students, teachers, or classes.</p>
                 <div>
                     <h3 class="text-md font-bold text-matte-green mb-3">Register New Student</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -325,11 +275,8 @@
         let isAdminLoggedIn = sessionStorage.getItem('ecocanteen_admin_session') === 'true';
         let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
         let html5QrCode = null;
-        let currentCameraMode = 'front';
         let firebaseDatabase = null;
         let scanLocked = false;
-        let scannerStarting = false;
-        let scannerRetryTimer = null;
         let currentView = 'scanner';
         // Becomes true once we've confirmed what's actually in the cloud database.
         // Registering people or recording anything BEFORE this is true is dangerous:
@@ -338,115 +285,6 @@
         // up to Firebase. Writing too early silently resurrects that stale data
         // and overwrites whatever is really in the cloud. See addStudent/addTeacher.
         let cloudDataReady = false;
-        let cloudBaseline = null;
-        let cloudSyncInFlight = false;
-        let cloudSyncQueued = false;
-        let cloudRetryTimer = null;
-
-        function deepClone(value) {
-            return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-        }
-
-        function sameData(a, b) {
-            return JSON.stringify(a) === JSON.stringify(b);
-        }
-
-        function mergeTrackedArray(current, baseline, local) {
-            const currentList = Array.isArray(current) ? current : [];
-            const baseList = Array.isArray(baseline) ? baseline : [];
-            const localList = Array.isArray(local) ? local : [];
-            const baseById = new Map(baseList.filter(x => x && x.id != null).map(x => [String(x.id), x]));
-            const localById = new Map(localList.filter(x => x && x.id != null).map(x => [String(x.id), x]));
-            const result = currentList.filter(x => x && x.id != null).map(deepClone);
-            const resultById = new Map(result.map(x => [String(x.id), x]));
-
-            // Apply only records this device actually changed since its last cloud snapshot.
-            for (const [id, localItem] of localById) {
-                const baseItem = baseById.get(id);
-                if (!baseItem || !sameData(localItem, baseItem)) {
-                    if (resultById.has(id)) {
-                        const index = result.findIndex(x => String(x.id) === id);
-                        result[index] = deepClone(localItem);
-                    } else {
-                        result.push(deepClone(localItem));
-                    }
-                    resultById.set(id, localItem);
-                }
-            }
-
-            // A deletion is also a local change, so remove only records that existed in the baseline.
-            for (const [id] of baseById) {
-                if (!localById.has(id)) {
-                    const index = result.findIndex(x => String(x.id) === id);
-                    if (index !== -1) result.splice(index, 1);
-                }
-            }
-            return result;
-        }
-
-        function mergeStringList(current, baseline, local) {
-            const cur = Array.isArray(current) ? current : [];
-            const base = Array.isArray(baseline) ? baseline : [];
-            const loc = Array.isArray(local) ? local : [];
-            const baseSet = new Set(base);
-            const localSet = new Set(loc);
-            const result = [...cur];
-            // Preserve remote additions while applying local additions.
-            for (const value of loc) if (!result.includes(value)) result.push(value);
-            // Apply local deletions only for values that existed in this device's baseline.
-            for (const value of baseSet) {
-                if (!localSet.has(value)) {
-                    const index = result.indexOf(value);
-                    if (index !== -1) result.splice(index, 1);
-                }
-            }
-            return result;
-        }
-
-        function mergeTracker(current, baseline, local) {
-            const result = deepClone(current || {});
-            const base = baseline || {};
-            const loc = local || {};
-            const ids = new Set([...Object.keys(base), ...Object.keys(loc)]);
-            ids.forEach(id => {
-                const basePerson = base[id];
-                const localPerson = loc[id];
-                if (localPerson === undefined) {
-                    if (basePerson !== undefined) delete result[id];
-                    return;
-                }
-                if (basePerson === undefined || !sameData(localPerson, basePerson)) {
-                    result[id] = deepClone(localPerson);
-                }
-            });
-            return result;
-        }
-
-        function mergeScanLogs(current, baseline, local) {
-            const key = item => [item?.occurredAt, item?.name, item?.time, item?.category, item?.status, item?.classGroup].join('|');
-            const all = new Map();
-            [...(Array.isArray(current) ? current : []), ...(Array.isArray(local) ? local : [])].forEach(item => all.set(key(item), deepClone(item)));
-            return [...all.values()].sort((a, b) => String(b?.occurredAt || '').localeCompare(String(a?.occurredAt || '')));
-        }
-
-        function buildMergedCloudState(current) {
-            const cloud = current || {};
-            const base = cloudBaseline || {};
-            const local = { grades, divisions, students, teachers, payments, paymentDeadlineDay, dailyTracker, dailyTrackerDate, monthlyResetMonth, scanLogs };
-            const merged = { ...cloud };
-            merged.grades = mergeStringList(cloud.grades, base.grades, local.grades);
-            merged.divisions = mergeStringList(cloud.divisions, base.divisions, local.divisions);
-            merged.students = mergeTrackedArray(cloud.students, base.students, local.students);
-            merged.teachers = mergeTrackedArray(cloud.teachers, base.teachers, local.teachers);
-            merged.payments = mergeTrackedArray(cloud.payments, base.payments, local.payments);
-            merged.dailyTracker = mergeTracker(cloud.dailyTracker, base.dailyTracker, local.dailyTracker);
-            merged.scanLogs = mergeScanLogs(cloud.scanLogs, base.scanLogs, local.scanLogs);
-            if (!sameData(local.paymentDeadlineDay, base.paymentDeadlineDay)) merged.paymentDeadlineDay = local.paymentDeadlineDay;
-            if (!sameData(local.dailyTrackerDate, base.dailyTrackerDate)) merged.dailyTrackerDate = local.dailyTrackerDate;
-            if (!sameData(local.monthlyResetMonth, base.monthlyResetMonth)) merged.monthlyResetMonth = local.monthlyResetMonth;
-            merged.updatedAt = new Date().toISOString();
-            return merged;
-        }
 
         function addScanLog(entry) { scanLogs.unshift({ ...entry, occurredAt: new Date().toISOString() }); }
 
@@ -465,145 +303,111 @@
             return firebaseConfig.apiKey && firebaseConfig.databaseURL;
         }
 
-
-        function getLocalStateSnapshot() {
-            return deepClone({ grades, divisions, students, teachers, payments, paymentDeadlineDay, dailyTracker, dailyTrackerDate, monthlyResetMonth, scanLogs });
-        }
-
-        function applyCloudState(data) {
-            if (!data) return;
-            grades = Array.isArray(data.grades) ? data.grades : grades;
-            divisions = Array.isArray(data.divisions) ? data.divisions : divisions;
-            students = Array.isArray(data.students) ? data.students : students;
-            teachers = Array.isArray(data.teachers) ? data.teachers : teachers;
-            payments = Array.isArray(data.payments) ? data.payments : payments;
-            paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
-            dailyTracker = data.dailyTracker || {};
-            dailyTrackerDate = data.dailyTrackerDate || dailyTrackerDate;
-            monthlyResetMonth = data.monthlyResetMonth || monthlyResetMonth;
-            scanLogs = Array.isArray(data.scanLogs) ? data.scanLogs : scanLogs;
-        }
-
-        function scheduleCloudRetry() {
-            clearTimeout(cloudRetryTimer);
-            cloudRetryTimer = setTimeout(() => {
-                if (firebaseDatabase) loadCloudData(true);
-            }, 8000);
-        }
-
         function syncCloudData() {
             if (!firebaseDatabase) return;
-            if (cloudSyncInFlight) { cloudSyncQueued = true; return; }
-            cloudSyncInFlight = true;
-            const ref = firebaseDatabase.ref('mcleods-canteen');
-            ref.transaction(current => buildMergedCloudState(current), (error, committed, snapshot) => {
-                cloudSyncInFlight = false;
-                if (error) {
-                    console.error('Firebase sync failed:', error);
-                    showCloudStatus(`⚠️ Cloud sync failed: ${error.message || error}. Your changes are saved on this device and will retry automatically.`, 'error');
-                    scheduleCloudRetry();
-                } else if (committed && snapshot?.val()) {
-                    cloudBaseline = deepClone(snapshot.val());
-                    showCloudStatus('☁️ Saved to the cloud. Other devices can now receive this data.', 'success');
-                }
-                if (cloudSyncQueued) {
-                    cloudSyncQueued = false;
-                    syncCloudData();
-                }
-            }, false);
+            if (!cloudDataReady) {
+                // Refuse to write until we know what's actually in the cloud.
+                // Writing early would push this device's possibly-stale local
+                // copy over the top of the real cloud data.
+                console.warn('Skipped cloud sync: still waiting for the initial load from Firebase.');
+                return;
+            }
+
+            firebaseDatabase.ref('mcleods-canteen').update({
+                grades,
+                divisions,
+                students,
+                teachers,
+                payments,
+                paymentDeadlineDay,
+                dailyTracker,
+                dailyTrackerDate,
+                monthlyResetMonth,
+                scanLogs,
+                updatedAt: new Date().toISOString()
+            }).catch(error => console.error('Firebase sync failed:', error));
         }
 
-        let cloudLoadTimer = null;
-        let cloudStatus = 'connecting';
-
-        function showCloudStatus(message, tone = 'warning') {
-            cloudStatus = tone;
-            const banner = document.getElementById('cloud-sync-banner');
-            if (!banner) return;
-            banner.classList.remove('hidden');
-            banner.className = `text-xs rounded-lg p-3 border ${tone === 'error' ? 'text-red-800 bg-red-50 border-red-200' : tone === 'success' ? 'text-green-800 bg-green-50 border-green-200' : 'text-amber-800 bg-amber-50 border-amber-200'}`;
-            banner.textContent = message;
-        }
-
-        function clearCloudLoadTimer() {
-            if (cloudLoadTimer) { clearTimeout(cloudLoadTimer); cloudLoadTimer = null; }
-        }
-
-        function handleCloudLoadFailure(error, reason = 'Firebase could not be reached') {
-            clearCloudLoadTimer();
-            console.error('Firebase cloud load failed:', error);
-            // NEVER lock the admin UI because the cloud is unavailable. LocalStorage
-            // remains usable and all edits are retained for the next successful sync.
-            cloudDataReady = true;
-            showCloudStatus(`⚠️ ${reason}. You can keep using the app; cloud sync will retry automatically. Firebase error: ${error?.message || error || 'unknown error'}.`, 'error');
-            refreshUI();
-            scheduleCloudRetry();
-        }
-
-        function loadCloudData(isRetry = false) {
+        function loadCloudData() {
             if (!isFirebaseConfigured()) {
+                console.info('Firebase is not configured. Using this browser\'s local storage.');
                 cloudDataReady = true;
-                showCloudStatus('ℹ️ Firebase is not configured; this device is using local storage.', 'warning');
                 refreshUI();
-                switchView(getInitialView());
+                switchView('scanner');
                 return;
             }
 
             try {
-                if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+                firebase.initializeApp(firebaseConfig);
                 firebaseDatabase = firebase.database();
-                clearCloudLoadTimer();
-                clearTimeout(cloudRetryTimer);
-                if (!isRetry) showCloudStatus('⏳ Connecting to the cloud database… You can still use the app.', 'warning');
-                cloudDataReady = true; // Editing must never be blocked by a cloud outage.
-                refreshUI();
-
-                const ref = firebaseDatabase.ref('mcleods-canteen');
-                const localBeforeRead = getLocalStateSnapshot();
-                cloudLoadTimer = setTimeout(() => {
-                    handleCloudLoadFailure(new Error('Connection timed out after 10 seconds'), 'The cloud connection timed out');
-                }, 10000);
-
-                ref.once('value').then(snapshot => {
-                    clearCloudLoadTimer();
+                firebaseDatabase.ref('mcleods-canteen').once('value').then(snapshot => {
                     const cloudData = snapshot.val();
                     if (cloudData) {
-                        // Merge any edits made on this device while the cloud read was
-                        // pending instead of replacing them with an older cloud snapshot.
-                        cloudBaseline = localBeforeRead;
-                        const merged = buildMergedCloudState(cloudData);
-                        applyCloudState(merged);
-                        cloudBaseline = deepClone(merged);
-                        showCloudStatus(sameData(merged, cloudData) ? '☁️ Connected to the cloud database.' : '☁️ Connected. Local changes were merged with cloud data.', 'success');
-                        if (!sameData(merged, cloudData)) syncCloudData();
+                        grades = Array.isArray(cloudData.grades) ? cloudData.grades : grades;
+                        divisions = Array.isArray(cloudData.divisions) ? cloudData.divisions : divisions;
+                        students = Array.isArray(cloudData.students) ? cloudData.students : students;
+                        teachers = Array.isArray(cloudData.teachers) ? cloudData.teachers : teachers;
+                        payments = Array.isArray(cloudData.payments) ? cloudData.payments : payments;
+                        paymentDeadlineDay = Number(cloudData.paymentDeadlineDay) || paymentDeadlineDay;
+                        dailyTracker = cloudData.dailyTracker || {};
+                        dailyTrackerDate = cloudData.dailyTrackerDate || dailyTrackerDate;
+                        monthlyResetMonth = cloudData.monthlyResetMonth || monthlyResetMonth;
+                        scanLogs = Array.isArray(cloudData.scanLogs) ? cloudData.scanLogs : [];
+                        cloudDataReady = true;
                     } else {
-                        cloudBaseline = localBeforeRead;
-                        showCloudStatus('☁️ Connected. The cloud database is empty; this device is initializing it.', 'success');
+                        // Nothing in the cloud yet - it's safe to seed it from local data.
+                        cloudDataReady = true;
                         syncCloudData();
                     }
-                    cloudDataReady = true;
                     runAutomaticResets();
                     refreshUI();
-                    switchView(getInitialView());
-
-                    ref.off('value');
-                    ref.on('value', latestSnapshot => {
+                    switchView('scanner');
+                    firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
-                        if (!latestData || cloudSyncInFlight) return;
-                        // Treat the last confirmed cloud snapshot as the baseline so only
-                        // actual local edits are merged on top of remote changes.
-                        cloudBaseline = deepClone(latestData);
-                        applyCloudState(latestData);
-                        cloudDataReady = true;
-                        showCloudStatus('☁️ Cloud data is up to date.', 'success');
+                        if (!latestData) return;
+                        grades = Array.isArray(latestData.grades) ? latestData.grades : grades;
+                        divisions = Array.isArray(latestData.divisions) ? latestData.divisions : divisions;
+                        students = Array.isArray(latestData.students) ? latestData.students : students;
+                        teachers = Array.isArray(latestData.teachers) ? latestData.teachers : teachers;
+                        payments = Array.isArray(latestData.payments) ? latestData.payments : payments;
+                        paymentDeadlineDay = Number(latestData.paymentDeadlineDay) || paymentDeadlineDay;
+                        dailyTracker = latestData.dailyTracker || dailyTracker;
+                        dailyTrackerDate = latestData.dailyTrackerDate || dailyTrackerDate;
+                        monthlyResetMonth = latestData.monthlyResetMonth || monthlyResetMonth;
+                        scanLogs = Array.isArray(latestData.scanLogs) ? latestData.scanLogs : scanLogs;
                         runAutomaticResets();
                         refreshUI();
-                    }, error => handleCloudLoadFailure(error, 'The live cloud listener failed'));
-                }).catch(error => handleCloudLoadFailure(error, 'Firebase rejected or could not complete the initial read'));
+                    });
+                }).catch(error => {
+                    console.error('Firebase loading failed:', error);
+                    // We couldn't confirm the cloud state, so treat this device's
+                    // local copy as the only source of truth for now rather than
+                    // silently blocking every save.
+                    cloudDataReady = true;
+                    refreshUI();
+                    switchView('scanner');
+                });
             } catch (error) {
-                handleCloudLoadFailure(error, 'Firebase setup failed');
-                switchView(getInitialView());
+                console.error('Firebase setup failed:', error);
+                cloudDataReady = true;
+                refreshUI();
+                switchView('scanner');
             }
+        }
+
+        function saveAppData() {
+            localStorage.setItem('ecocanteen_grades', JSON.stringify(grades));
+            localStorage.setItem('ecocanteen_divisions', JSON.stringify(divisions));
+            localStorage.setItem('ecocanteen_students', JSON.stringify(students));
+            localStorage.setItem('ecocanteen_teachers', JSON.stringify(teachers));
+            localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
+            localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
+            localStorage.setItem('ecocanteen_tracker', JSON.stringify(dailyTracker));
+            localStorage.setItem('ecocanteen_tracker_date', dailyTrackerDate);
+            localStorage.setItem('ecocanteen_monthly_reset_month', monthlyResetMonth);
+            localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs));
+            refreshUI();
+            syncCloudData();
         }
 
         function getMonthKey(date = new Date()) {
@@ -617,21 +421,21 @@
         function runAutomaticResets() {
             removeExpiredClosedAccounts();
             const today = getDayKey();
+            const thisMonth = getMonthKey();
             let dataChanged = false;
 
-            // Payment access is now based on each payment's actual payment date and
-            // one-month expiry date. Do NOT pause every student at the start of a
-            // calendar month; a payment can remain valid across month boundaries.
-            students.forEach(student => {
-                if (!isStudentEnrolled(student)) return;
-                const activePayment = getLatestValidPayment(student.id, new Date());
-                const shouldBeExpired = !activePayment;
-                if (student.paymentExpired !== shouldBeExpired) {
-                    student.paymentExpired = shouldBeExpired;
-                    dataChanged = true;
-                }
-            });
-
+            if (monthlyResetMonth !== thisMonth) {
+                monthlyResetMonth = thisMonth;
+                dailyTracker = {};
+                // A new meal month requires a payment for that month. Keep this
+                // status on the account so staff can see which accounts need action.
+                students.forEach(student => {
+                    if (isStudentEnrolled(student) && !getPaidPayment(student.id, thisMonth)) {
+                        student.paymentPaused = true;
+                    }
+                });
+                dataChanged = true;
+            }
             if (dailyTrackerDate !== today) {
                 dailyTrackerDate = today;
                 dailyTracker = {};
@@ -681,63 +485,6 @@
             return payments.find(payment => payment.studentId === studentId && payment.mealMonth === mealMonth && payment.status === 'PAID');
         }
 
-        // Payment validity is determined by the real payment date, not by a fixed
-        // monthly deadline. A payment made on 11/09/2026 is valid from that date
-        // until 11/10/2026 (expiry starts at 00:00 on 11/10/2026).
-        function parsePaymentDate(value) {
-            if (!value) return null;
-            if (value instanceof Date && !Number.isNaN(value.getTime())) return new Date(value.getFullYear(), value.getMonth(), value.getDate());
-            const match = String(value).trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-            if (!match) return null;
-            const day = Number(match[1]);
-            const month = Number(match[2]);
-            const year = Number(match[3]);
-            const date = new Date(year, month - 1, day);
-            return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
-                ? new Date(year, month - 1, day)
-                : null;
-        }
-
-        function calculatePaymentExpiryDate(paymentDate) {
-            const date = parsePaymentDate(paymentDate);
-            if (!date) return null;
-            const targetYear = date.getFullYear() + (date.getMonth() === 11 ? 1 : 0);
-            const targetMonth = (date.getMonth() + 1) % 12;
-            const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-            return new Date(targetYear, targetMonth, Math.min(date.getDate(), lastDay));
-        }
-
-        function formatDateForStorage(date) {
-            if (!date || Number.isNaN(date.getTime())) return '';
-            return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
-        }
-
-        function getPaymentExpiryDate(payment) {
-            if (!payment || payment.status !== 'PAID') return null;
-            return parsePaymentDate(payment.expiryDate) || calculatePaymentExpiryDate(payment.paymentDate);
-        }
-
-        function getLatestValidPayment(studentId, now = new Date()) {
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            return payments
-                .filter(payment => payment.studentId === studentId && payment.status === 'PAID')
-                .map(payment => ({ payment, paidOn: parsePaymentDate(payment.paymentDate), expiresOn: getPaymentExpiryDate(payment) }))
-                .filter(item => item.paidOn && item.expiresOn && today >= item.paidOn && today < item.expiresOn)
-                .sort((a, b) => b.paidOn - a.paidOn)[0]?.payment || null;
-        }
-
-        function getLatestPayment(studentId) {
-            return payments
-                .filter(payment => payment.studentId === studentId && payment.status === 'PAID')
-                .map(payment => ({ payment, paidOn: parsePaymentDate(payment.paymentDate) }))
-                .filter(item => item.paidOn)
-                .sort((a, b) => b.paidOn - a.paidOn)[0]?.payment || null;
-        }
-
-        function isPaymentExpired(student) {
-            return !getLatestValidPayment(student.id, new Date());
-        }
-
         function isFeePaused(student) {
             return student.paymentPaused === true;
         }
@@ -767,34 +514,12 @@
 
         // Single source of truth for the breakfast rule: Grade 1 and Grade 2 only.
         // Grade 3 and above - and any student whose grade can't be confidently parsed -
-        // are not eligible for breakfast (they can still claim the other meals as
-        // normal). This rule applies to students only; teachers are not graded and
-        // are unaffected.
+        // are not eligible for breakfast (they can still claim lunch as normal). This
+        // rule applies to students only; teachers are not graded and are unaffected.
         function isBreakfastAvailableForStudent(student) {
             const grade = getNumericGrade(student && student.grade);
             if (grade === null) return false; // Unknown/unparseable grade - fail safe, no breakfast.
             return grade === 1 || grade === 2;
-        }
-
-        // --- Per-meal daily tracking --------------------------------------------------
-        // Each of the five meal categories (Breakfast, Mid-Morning, Lunch, Mid-Evening,
-        // Dinner) is tracked independently per person per day, keyed by a normalised
-        // version of the category name (e.g. "Mid-Morning" -> "mid_morning"). Claiming
-        // one meal never affects the availability of any other meal. This works for any
-        // category string, so adding/renaming meals in future only means updating the
-        // dropdown - no tracker changes are needed. Old records that only have
-        // {breakfast, lunch} boolean fields (from before this update) remain untouched
-        // and compatible; new meal keys are simply added alongside them.
-        function getMealTrackerKey(category) {
-            return String(category || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'meal';
-        }
-
-        function getInitialView() {
-            const requestedView = new URLSearchParams(window.location.search).get('view') || '';
-            if (requestedView === 'admin' || requestedView === 'dashboard') {
-                return isAdminLoggedIn ? 'dashboard' : 'login';
-            }
-            return 'scanner';
         }
 
         function switchView(viewName) {
@@ -828,20 +553,113 @@
             if (isAdminLoggedIn) switchView('dashboard');
             else switchView('login');
         }
+        // --- Two-layer admin security -----------------------------------------------
+        // PBKDF2 hashes avoid storing the actual passwords in plaintext in the page.
+        // A five-attempt lockout slows repeated guessing on each browser session.
+        const ADMIN_USERNAME = 'CanteenGuardian';
+        const ADMIN_PASSWORD_SALT = 'canteen-admin-v2-salt';
+        const ADMIN_PASSWORD_HASH = 'dc03464a9f8a20351543415a795db5c91b89a412d5c4a14eaddd0612daad9229';
+        const ADMIN_SECURITY_SALT = 'canteen-admin-v2-factor';
+        const ADMIN_SECURITY_HASH = '2f379d953139f9fe039845dc7e4543c1366fa566c6d1cc48b6b2bdfb66e1dc02';
+        const ADMIN_SECURITY_ATTEMPTS_KEY = 'ecocanteen_admin_security_attempts';
+        const ADMIN_SECURITY_LOCK_KEY = 'ecocanteen_admin_security_lock_until';
 
-        function processAdminLogin() {
-            const u = document.getElementById('admin-user').value;
-            const p = document.getElementById('admin-pass').value;
-            if (u === 'admin' && p === 'canteen123') {
+        function bytesToHex(buffer) {
+            return Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+
+        async function secureCredentialHash(value, salt) {
+            if (!window.crypto || !window.crypto.subtle) throw new Error('Secure browser cryptography is unavailable.');
+            const encoder = new TextEncoder();
+            const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(value), 'PBKDF2', false, ['deriveBits']);
+            const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations: 310000, hash: 'SHA-256' }, keyMaterial, 256);
+            return bytesToHex(bits);
+        }
+
+        function securityLocked() {
+            const until = Number(sessionStorage.getItem(ADMIN_SECURITY_LOCK_KEY) || 0);
+            if (until > Date.now()) return true;
+            sessionStorage.removeItem(ADMIN_SECURITY_LOCK_KEY);
+            return false;
+        }
+
+        function registerSecurityFailure() {
+            const attempts = Number(sessionStorage.getItem(ADMIN_SECURITY_ATTEMPTS_KEY) || 0) + 1;
+            sessionStorage.setItem(ADMIN_SECURITY_ATTEMPTS_KEY, String(attempts));
+            if (attempts >= 5) {
+                sessionStorage.setItem(ADMIN_SECURITY_LOCK_KEY, String(Date.now() + 30000));
+                sessionStorage.setItem(ADMIN_SECURITY_ATTEMPTS_KEY, '0');
+                alert('Too many failed attempts. Please wait 30 seconds before trying again.');
+            } else {
+                alert('Invalid security credentials.');
+            }
+        }
+
+        function clearSecurityState() {
+            sessionStorage.removeItem(ADMIN_SECURITY_ATTEMPTS_KEY);
+            sessionStorage.removeItem(ADMIN_SECURITY_LOCK_KEY);
+        }
+
+        function resetSecurityLoginForm() {
+            const first = document.getElementById('admin-first-step');
+            const second = document.getElementById('admin-second-step');
+            if (first) {
+                first.classList.remove('hidden');
+                first.querySelectorAll('input').forEach(input => { input.disabled = false; });
+            }
+            if (second) {
+                second.classList.add('hidden');
+                const input = document.getElementById('admin-security-key');
+                if (input) { input.value = ''; input.disabled = true; }
+            }
+        }
+
+        function showSecurityStep() {
+            const first = document.getElementById('admin-first-step');
+            const second = document.getElementById('admin-second-step');
+            if (first) {
+                first.classList.add('hidden');
+                first.querySelectorAll('input').forEach(input => { input.disabled = true; });
+            }
+            if (second) {
+                second.classList.remove('hidden');
+                const input = document.getElementById('admin-security-key');
+                if (input) { input.disabled = false; input.value = ''; setTimeout(() => input.focus(), 50); }
+            }
+        }
+
+        async function processAdminLogin() {
+            if (securityLocked()) { alert('Too many failed attempts. Please wait 30 seconds before trying again.'); return; }
+            const username = document.getElementById('admin-user').value.trim();
+            const password = document.getElementById('admin-pass').value;
+            try {
+                const hash = await secureCredentialHash(password, ADMIN_PASSWORD_SALT);
+                if (username !== ADMIN_USERNAME || hash !== ADMIN_PASSWORD_HASH) { registerSecurityFailure(); return; }
+                document.getElementById('admin-pass').value = '';
+                showSecurityStep();
+            } catch (error) {
+                console.error(error);
+                alert('This browser cannot start the secure login. Please use an up-to-date browser over HTTPS.');
+            }
+        }
+
+        async function verifyAdminSecurityKey() {
+            if (securityLocked()) { alert('Too many failed attempts. Please wait 30 seconds before trying again.'); return; }
+            const key = document.getElementById('admin-security-key').value;
+            try {
+                const hash = await secureCredentialHash(key, ADMIN_SECURITY_SALT);
+                if (hash !== ADMIN_SECURITY_HASH) { registerSecurityFailure(); return; }
+                clearSecurityState();
                 isAdminLoggedIn = true;
-                currentAdminName = u;
+                currentAdminName = ADMIN_USERNAME;
                 sessionStorage.setItem('ecocanteen_admin_session', 'true');
                 sessionStorage.setItem('ecocanteen_admin_name', currentAdminName);
-                document.getElementById('admin-pass').value = '';
+                document.getElementById('admin-security-key').value = '';
                 refreshUI();
                 switchView('dashboard');
-            } else {
-                alert('Invalid credentials!');
+            } catch (error) {
+                console.error(error);
+                alert('This browser cannot start the secure login. Please use an up-to-date browser over HTTPS.');
             }
         }
 
@@ -850,10 +668,13 @@
             currentAdminName = '';
             sessionStorage.removeItem('ecocanteen_admin_session');
             sessionStorage.removeItem('ecocanteen_admin_name');
+            clearSecurityState();
+            resetSecurityLoginForm();
             switchView('scanner');
         }
 
         function addGrade() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const val = document.getElementById('new-grade-input').value.trim();
             if (val && !grades.includes(val)) {
                 grades.push(val);
@@ -863,6 +684,7 @@
         }
 
         function addDivision() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const val = document.getElementById('new-div-input').value.trim();
             if (val && !divisions.includes(val)) {
                 divisions.push(val);
@@ -872,6 +694,7 @@
         }
 
         function registerStudent() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const name = document.getElementById('reg-name').value.trim();
             const grade = document.getElementById('reg-grade').value;
             const division = document.getElementById('reg-division').value;
@@ -885,6 +708,7 @@
         }
 
         function registerTeacher() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const name = document.getElementById('reg-teacher-name').value.trim();
             if (!name) { alert('Enter teacher name.'); return; }
 
@@ -903,25 +727,6 @@
         // the ID was obtained. Adding a new identification method later only means
         // calling handleScanResult(id, 'fingerprint') or handleScanResult(id, 'face')
         // from that method's code - none of the validation below needs to change.
-
-        function showScanResult(type, title, message) {
-            const modal = document.getElementById('scan-result-modal');
-            const card = document.getElementById('scan-result-card');
-            const icon = document.getElementById('scan-result-icon');
-            document.getElementById('scan-result-title').textContent = title;
-            document.getElementById('scan-result-message').innerHTML = message;
-            card.className = `scan-result-card ${type}`;
-            icon.textContent = type === 'accepted' ? '✅' : type === 'warning' ? '⚠️' : '❌';
-            modal.classList.add('show');
-            modal.setAttribute('aria-hidden', 'false');
-        }
-
-        function closeScanResult() {
-            const modal = document.getElementById('scan-result-modal');
-            modal.classList.remove('show');
-            modal.setAttribute('aria-hidden', 'true');
-        }
-
         function handleScanResult(code, method = 'qr') {
             // QR readers report the same code repeatedly while it remains in view.
             // Keep the five-second cooldown silent so only one scan is processed.
@@ -940,7 +745,6 @@
             if (!person) {
                 feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
                 feedbackEl.innerHTML = `⚠️ UNKNOWN ID: "${code}" is not found.`;
-                showScanResult('rejected', 'REJECTED', `Unknown ID: <b>${code}</b> was not found in the system.`);
                 return;
             }
 
@@ -948,36 +752,22 @@
                 if (!isStudentEnrolled(person)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-gray-200 text-gray-700 border border-gray-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `⛔ ACCOUNT CLOSED: ${person.name}'s canteen account is no longer active.`;
-                    showScanResult('rejected', 'REJECTED', `<b>${person.name}</b> — account is closed.`);
                     return;
                 }
                 if (isFeePaused(person)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${person.name}'s canteen access is manually paused until it is unpaused.`;
-                    showScanResult('rejected', 'REJECTED', `<b>${person.name}</b> — account is manually paused.`);
+                    feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${person.name}'s canteen access is paused until their meal fee is recorded as paid.`;
                     addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Account Paused)' });
                     saveAppData();
                     return;
                 }
-                const activePayment = getLatestValidPayment(person.id, new Date());
-                if (!activePayment) {
-                    const latestPayment = getLatestPayment(person.id);
-                    const expiryDate = latestPayment ? getPaymentExpiryDate(latestPayment) : null;
-                    const expiryText = expiryDate ? formatDateForStorage(expiryDate) : '';
+                const currentMealMonth = getMonthKey();
+                if (!getPaidPayment(person.id, currentMealMonth)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
-                    feedbackEl.innerHTML = expiryText
-                        ? `⛔ ACCOUNT EXPIRED: ${person.name}'s meal payment expired on <b>${expiryText}</b>. Record a new payment to reactivate the account.`
-                        : `💳 PAYMENT REQUIRED: ${person.name} does not have an active meal payment. Record a payment to activate the account.`;
-                    showScanResult('rejected', 'REJECTED', expiryText
-                        ? `<b>${person.name}</b> — payment expired on <b>${expiryText}</b>.`
-                        : `<b>${person.name}</b> — payment is required.`);
-                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: expiryText ? 'Rejected (Payment Expired)' : 'Rejected (Payment Required)' });
+                    feedbackEl.innerHTML = `💳 PAYMENT REQUIRED: ${person.name} has not paid for <b>${formatMealMonth(currentMealMonth)}</b> meals.`;
+                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Payment Required)' });
                     saveAppData();
                     return;
-                }
-                if (person.paymentExpired) {
-                    person.paymentExpired = false;
-                    saveAppData();
                 }
                 // Meal eligibility check (grade-based). Must run BEFORE the daily
                 // duplicate check below, so an ineligible breakfast attempt never
@@ -985,7 +775,6 @@
                 if (category === 'Breakfast' && !isBreakfastAvailableForStudent(person)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `🍳 BREAKFAST NOT AVAILABLE: Breakfast is only available for Grades 1 and 2. ${person.name} is in ${person.grade}.`;
-                    showScanResult('rejected', 'REJECTED', `<b>${person.name}</b> — breakfast is only available for Grades 1 and 2.`);
                     addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Breakfast Not Available)' });
                     saveAppData();
                     return;
@@ -996,7 +785,6 @@
                 if (!isTeacherEnrolled(teacher)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-gray-200 text-gray-700 border border-gray-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `⛔ ACCOUNT CLOSED: ${teacher.name}'s canteen account is no longer active.`;
-                    showScanResult('rejected', 'REJECTED', `<b>${teacher.name}</b> — account is closed.`);
                     addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, method, status: 'Rejected (Account Closed)' });
                     saveAppData();
                     return;
@@ -1004,7 +792,6 @@
                 if (isTeacherPaused(teacher)) {
                     feedbackEl.className = "mt-4 p-4 rounded-xl bg-red-100 text-red-800 border border-red-300 font-bold block text-sm";
                     feedbackEl.innerHTML = `⏸️ ACCOUNT PAUSED: ${teacher.name}'s canteen access is paused.`;
-                    showScanResult('rejected', 'REJECTED', `<b>${teacher.name}</b> — account is paused.`);
                     addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, method, status: 'Rejected (Account Paused)' });
                     saveAppData();
                     return;
@@ -1015,21 +802,19 @@
             }
 
             const classGroup = student ? `${student.grade} / ${student.division}` : 'Teacher';
-            if (!dailyTracker[person.id]) dailyTracker[person.id] = {};
-            const mealKey = getMealTrackerKey(category);
-            let claimed = dailyTracker[person.id][mealKey] === true;
+            if (!dailyTracker[person.id]) dailyTracker[person.id] = { breakfast: false, lunch: false };
+            let claimed = category === 'Breakfast' ? dailyTracker[person.id].breakfast : dailyTracker[person.id].lunch;
 
             if (claimed) {
                 feedbackEl.className = "mt-4 p-4 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 font-bold block text-sm";
                 feedbackEl.innerHTML = `❌ REJECTED: ${person.name} (${classGroup}) already claimed <b>${category}</b> today!`;
-                showScanResult('rejected', 'REJECTED', `<b>${person.name}</b> already claimed <b>${category}</b> today.`);
                 addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Rejected (Duplicate)' });
             } else {
-                dailyTracker[person.id][mealKey] = true;
+                if (category === 'Breakfast') dailyTracker[person.id].breakfast = true;
+                if (category === 'Lunch') dailyTracker[person.id].lunch = true;
 
                 feedbackEl.className = "mt-4 p-4 rounded-xl bg-[#d8e2dc] text-[#2d4a3e] border border-[#b2c4bc] font-bold block text-sm";
                 feedbackEl.innerHTML = `✅ SUCCESS: ${category} recorded for <b>${person.name}</b> [${classGroup}]`;
-                showScanResult('accepted', 'ACCEPTED', `<b>${person.name}</b> — ${category} recorded successfully.`);
                 addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Success' });
             }
             saveAppData();
@@ -1043,109 +828,15 @@
             }
         }
 
-        async function initScanner(retryCount = 0) {
-            if (currentView !== 'scanner' || document.visibilityState !== 'visible') return;
+        function initScanner() {
             if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-            if (html5QrCode.isScanning || scannerStarting) return;
-
-            const config = { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0, disableFlip: false };
-            const onSuccess = (decodedText) => handleScanResult(decodedText, 'qr');
-            const onError = () => {};
-            scannerStarting = true;
-            try {
-                await startCameraMode(currentCameraMode, config, onSuccess, onError);
-                scannerStarting = false;
-                updateCameraSwitchButton();
-                // Some browsers resolve start() before the video element has actually
-                // begun producing frames. Verify it shortly after startup.
-                setTimeout(() => verifyScanner(retryCount), 1200);
-            } catch (error) {
-                scannerStarting = false;
-                console.warn('Camera start failed', error);
-                updateCameraSwitchButton();
-                if (retryCount < 4 && currentView === 'scanner' && document.visibilityState === 'visible') {
-                    clearTimeout(scannerRetryTimer);
-                    scannerRetryTimer = setTimeout(() => initScanner(retryCount + 1), 1200);
-                }
-            }
+            html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 220, height: 220 } },
+                (decodedText) => handleScanResult(decodedText, 'qr'),
+                (err) => {}
+            ).catch(err => console.log("Camera inactive or blocked"));
         }
-
-        function verifyScanner(retryCount = 0) {
-            if (currentView !== 'scanner' || document.visibilityState !== 'visible' || !html5QrCode) return;
-            const reader = document.getElementById('reader');
-            const video = reader?.querySelector('video');
-            const healthy = html5QrCode.isScanning && video && video.readyState >= 2 && !video.paused;
-            if (healthy) return;
-            if (retryCount >= 4) return;
-            try {
-                if (html5QrCode.isScanning) html5QrCode.stop().catch(() => {});
-            } catch {}
-            setTimeout(() => initScanner(retryCount + 1), 500);
-        }
-
-        async function startCameraMode(mode, config, onSuccess, onError) {
-            const facingMode = mode === 'back' ? 'environment' : 'user';
-            try {
-                await html5QrCode.start({ facingMode: { exact: facingMode } }, config, onSuccess, onError);
-            } catch (modeError) {
-                const cameras = await Html5Qrcode.getCameras();
-                if (!cameras || !cameras.length) throw modeError;
-
-                const isFront = camera => /front|user|facetime|selfie/i.test(camera.label || '');
-                const isBack = camera => /back|rear|environment/i.test(camera.label || '');
-                const preferred = mode === 'back'
-                    ? cameras.find(isBack) || cameras.find(camera => !isFront(camera)) || cameras[0]
-                    : cameras.find(isFront) || cameras.find(camera => !isBack(camera)) || cameras[0];
-
-                await html5QrCode.start(preferred.id, config, onSuccess, onError);
-            }
-        }
-
-        function updateCameraSwitchButton() {
-            const button = document.getElementById('camera-switch-button');
-            if (!button) return;
-            button.textContent = currentCameraMode === 'front' ? '🔄 Use Back Camera' : '🔄 Use Front Camera';
-        }
-
-        async function switchCamera() {
-            if (!html5QrCode) {
-                currentCameraMode = currentCameraMode === 'front' ? 'back' : 'front';
-                updateCameraSwitchButton();
-                await initScanner();
-                return;
-            }
-
-            const nextMode = currentCameraMode === 'front' ? 'back' : 'front';
-            const config = { fps: 10, qrbox: { width: 220, height: 220 }, aspectRatio: 1.0, disableFlip: false };
-            const onSuccess = (decodedText) => handleScanResult(decodedText, 'qr');
-            const onError = () => {};
-
-            try {
-                if (html5QrCode.isScanning) await html5QrCode.stop();
-                currentCameraMode = nextMode;
-                updateCameraSwitchButton();
-                await startCameraMode(currentCameraMode, config, onSuccess, onError);
-                setTimeout(() => verifyScanner(0), 1200);
-            } catch (error) {
-                console.warn('Requested camera unavailable', error);
-                currentCameraMode = currentCameraMode === 'front' ? 'back' : 'front';
-                updateCameraSwitchButton();
-                try {
-                    await startCameraMode(currentCameraMode, config, onSuccess, onError);
-                    setTimeout(() => verifyScanner(0), 1200);
-                } catch (fallbackError) {
-                    console.warn('Could not restart scanner', fallbackError);
-                    initScanner(0);
-                }
-            }
-        }
-
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && currentView === 'scanner') setTimeout(() => initScanner(), 250);
-        });
-        window.addEventListener('focus', () => {
-            if (currentView === 'scanner') setTimeout(() => initScanner(), 250);
-        });
 
         // --- Future biometric identification (NOT implemented) -----------------------
         // These are intentionally inert placeholders so the identification/validation
@@ -1165,24 +856,22 @@
 
 
         function stopScanner() {
-            clearTimeout(scannerRetryTimer);
-            scannerRetryTimer = null;
-            scannerStarting = false;
             if (html5QrCode && html5QrCode.isScanning) {
                 html5QrCode.stop().catch(err => {});
             }
         }
 
         function refreshUI() {
-            // Cloud status is informational only. The admin UI must remain usable even
-            // when Firebase is offline or its read is temporarily delayed.
+            // Show a banner and disable data-entry while we still don't know
+            // what's actually saved in the cloud (see cloudDataReady).
             const syncBanner = document.getElementById('cloud-sync-banner');
-            if (syncBanner) syncBanner.classList.toggle('hidden', !cloudStatus);
+            const stillLoading = isFirebaseConfigured() && !cloudDataReady;
+            if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
             ['reg-name', 'reg-grade', 'reg-division', 'reg-teacher-name', 'new-grade-input', 'new-div-input'].forEach(id => {
                 const el = document.getElementById(id);
-                if (el) el.disabled = false;
+                if (el) el.disabled = stillLoading;
             });
-            document.querySelectorAll('[onclick="registerStudent()"], [onclick="registerTeacher()"], [onclick="addGrade()"], [onclick="addDivision()"]').forEach(btn => { btn.disabled = false; btn.classList.remove('opacity-50', 'cursor-not-allowed'); });
+            document.querySelectorAll('[onclick="registerStudent()"], [onclick="registerTeacher()"], [onclick="addGrade()"], [onclick="addDivision()"]').forEach(btn => { btn.disabled = stillLoading; btn.classList.toggle('opacity-50', stillLoading); btn.classList.toggle('cursor-not-allowed', stillLoading); });
 
             // Populate Grade/Division Dropdowns
             document.getElementById('reg-grade').innerHTML = grades.map(g => `<option value="${g}">${g}</option>`).join('');

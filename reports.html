@@ -9,22 +9,6 @@
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
     <style>
-        /* McLEOD's English School watermark: sits above the page background but behind all content. */
-        body { position: relative; isolation: isolate; }
-        body::before {
-            content: "";
-            position: fixed;
-            inset: 0;
-            z-index: 0;
-            pointer-events: none;
-            background-image: url("Not needed/McLeod's English School LOGO.png");
-            background-repeat: no-repeat;
-            background-position: center center;
-            background-size: min(72vw, 820px) auto;
-            opacity: 0.25;
-        }
-        body > * { position: relative; z-index: auto; }
-
         body { background-color: #f4f6f0; color: #2d3732; }
         .bg-matte-green { background-color: #2d4a3e; }
         .text-matte-green { color: #2d4a3e; }
@@ -32,24 +16,7 @@
         .btn-matte:hover { background-color: #243c32; }
         .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
         @media print { header, .no-print { display: none !important; } body { background: white; } main { max-width: none !important; padding: 0 !important; } }
-    
-        /* 90% transparent logo watermark: behind website content, with the live camera/scanner above it. */
-        body::after {
-            content: "";
-            position: fixed;
-            inset: 0;
-            z-index: 10000;
-            pointer-events: none;
-            background-image: url("Not needed/McLeod's English School LOGO.png");
-            background-repeat: no-repeat;
-            background-position: center center;
-            background-size: min(72vw, 820px) auto;
-            opacity: 0.10;
-        }
-
-        /* Keep the live scanner/camera above the watermark. */
-        #reader { position: relative; z-index: 10001; }
-</style>
+    </style>
 </head>
 <body class="min-h-screen">
     <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
@@ -57,18 +24,26 @@
             <span role="img" aria-label="McLEOD's English School logo" class="header-school-logo"></span>
             <h1 class="text-xl font-bold tracking-wide">McLEOD's English School Canteen Monitor</h1>
         </div>
-        <a href="canteen.html?view=admin" class="px-4 py-2 rounded bg-[#3c5f51] hover:bg-[#476f5f] transition font-medium text-sm">← Admin Dashboard</a>
+        <a href="canteen.html" class="px-4 py-2 rounded bg-[#3c5f51] hover:bg-[#476f5f] transition font-medium text-sm">← Admin Dashboard</a>
     </header>
 
     <main class="max-w-6xl w-full mx-auto p-4 sm:p-6">
         <section id="reports-login" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
             <h2 class="text-xl font-bold text-matte-green mb-2">Reports Login</h2>
             <p class="text-xs text-gray-500 mb-6">Only authorised staff can view canteen reports.</p>
-            <div class="space-y-4">
-                <input id="admin-user" type="text" placeholder="Username" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
-                <input id="admin-pass" type="password" placeholder="Password" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none">
-                <button onclick="login()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Login</button>
-            </div>
+            <form id="admin-login-form" class="space-y-4" onsubmit="event.preventDefault(); document.getElementById('admin-second-step').classList.contains('hidden') ? login() : verifyAdminSecurityKey();">
+                <div id="admin-first-step">
+                    <input id="admin-user" type="text" autocomplete="username" placeholder="Username" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" required>
+                    <input id="admin-pass" type="password" autocomplete="current-password" placeholder="Password" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none mt-3" required>
+                    <button type="submit" class="w-full btn-matte font-bold p-3 rounded-lg transition mt-3">Login</button>
+                </div>
+                <div id="admin-second-step" class="hidden">
+                    <p class="text-sm font-semibold text-matte-green mb-1">Second security layer</p>
+                    <p class="text-xs text-gray-500 mb-4">Enter the security phrase to protect authorised canteen data.</p>
+                    <input id="admin-security-key" type="password" autocomplete="one-time-code" placeholder="Security phrase" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" required>
+                    <button type="submit" class="w-full btn-matte font-bold p-3 rounded-lg transition mt-3">Unlock</button>
+                </div>
+            </form>
         </section>
 
         <section id="reports-app" class="hidden space-y-6">
@@ -125,19 +100,121 @@
             measurementId: "G-FYR72EMJRP"
         };
 
-        function login() {
-            if (document.getElementById('admin-user').value !== 'admin' || document.getElementById('admin-pass').value !== 'canteen123') { alert('Invalid credentials!'); return; }
-            sessionStorage.setItem('ecocanteen_admin_session', 'true');
-            document.getElementById('admin-pass').value = '';
-            showReports();
+        // --- Two-layer admin security -----------------------------------------------
+        // PBKDF2 hashes avoid storing the actual passwords in plaintext in the page.
+        // A five-attempt lockout slows repeated guessing on each browser session.
+        const ADMIN_USERNAME = 'CanteenGuardian';
+        const ADMIN_PASSWORD_SALT = 'canteen-admin-v2-salt';
+        const ADMIN_PASSWORD_HASH = 'dc03464a9f8a20351543415a795db5c91b89a412d5c4a14eaddd0612daad9229';
+        const ADMIN_SECURITY_SALT = 'canteen-admin-v2-factor';
+        const ADMIN_SECURITY_HASH = '2f379d953139f9fe039845dc7e4543c1366fa566c6d1cc48b6b2bdfb66e1dc02';
+        const ADMIN_SECURITY_ATTEMPTS_KEY = 'ecocanteen_admin_security_attempts';
+        const ADMIN_SECURITY_LOCK_KEY = 'ecocanteen_admin_security_lock_until';
+
+        function bytesToHex(buffer) {
+            return Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
         }
+
+        async function secureCredentialHash(value, salt) {
+            if (!window.crypto || !window.crypto.subtle) throw new Error('Secure browser cryptography is unavailable.');
+            const encoder = new TextEncoder();
+            const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(value), 'PBKDF2', false, ['deriveBits']);
+            const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: encoder.encode(salt), iterations: 310000, hash: 'SHA-256' }, keyMaterial, 256);
+            return bytesToHex(bits);
+        }
+
+        function securityLocked() {
+            const until = Number(sessionStorage.getItem(ADMIN_SECURITY_LOCK_KEY) || 0);
+            if (until > Date.now()) return true;
+            sessionStorage.removeItem(ADMIN_SECURITY_LOCK_KEY);
+            return false;
+        }
+
+        function registerSecurityFailure() {
+            const attempts = Number(sessionStorage.getItem(ADMIN_SECURITY_ATTEMPTS_KEY) || 0) + 1;
+            sessionStorage.setItem(ADMIN_SECURITY_ATTEMPTS_KEY, String(attempts));
+            if (attempts >= 5) {
+                sessionStorage.setItem(ADMIN_SECURITY_LOCK_KEY, String(Date.now() + 30000));
+                sessionStorage.setItem(ADMIN_SECURITY_ATTEMPTS_KEY, '0');
+                alert('Too many failed attempts. Please wait 30 seconds before trying again.');
+            } else {
+                alert('Invalid security credentials.');
+            }
+        }
+
+        function clearSecurityState() {
+            sessionStorage.removeItem(ADMIN_SECURITY_ATTEMPTS_KEY);
+            sessionStorage.removeItem(ADMIN_SECURITY_LOCK_KEY);
+        }
+
+        function resetSecurityLoginForm() {
+            const first = document.getElementById('admin-first-step');
+            const second = document.getElementById('admin-second-step');
+            if (first) {
+                first.classList.remove('hidden');
+                first.querySelectorAll('input').forEach(input => { input.disabled = false; });
+            }
+            if (second) {
+                second.classList.add('hidden');
+                const input = document.getElementById('admin-security-key');
+                if (input) { input.value = ''; input.disabled = true; }
+            }
+        }
+
+        function showSecurityStep() {
+            const first = document.getElementById('admin-first-step');
+            const second = document.getElementById('admin-second-step');
+            if (first) {
+                first.classList.add('hidden');
+                first.querySelectorAll('input').forEach(input => { input.disabled = true; });
+            }
+            if (second) {
+                second.classList.remove('hidden');
+                const input = document.getElementById('admin-security-key');
+                if (input) { input.disabled = false; input.value = ''; setTimeout(() => input.focus(), 50); }
+            }
+        }
+
+        async function login() {
+            if (securityLocked()) { alert('Too many failed attempts. Please wait 30 seconds before trying again.'); return; }
+            const username = document.getElementById('admin-user').value.trim();
+            const password = document.getElementById('admin-pass').value;
+            try {
+                const hash = await secureCredentialHash(password, ADMIN_PASSWORD_SALT);
+                if (username !== ADMIN_USERNAME || hash !== ADMIN_PASSWORD_HASH) { registerSecurityFailure(); return; }
+                document.getElementById('admin-pass').value = '';
+                showSecurityStep();
+            } catch (error) {
+                console.error(error);
+                alert('This browser cannot start the secure login. Please use an up-to-date browser over HTTPS.');
+            }
+        }
+
+        async function verifyAdminSecurityKey() {
+            if (securityLocked()) { alert('Too many failed attempts. Please wait 30 seconds before trying again.'); return; }
+            const key = document.getElementById('admin-security-key').value;
+            try {
+                const hash = await secureCredentialHash(key, ADMIN_SECURITY_SALT);
+                if (hash !== ADMIN_SECURITY_HASH) { registerSecurityFailure(); return; }
+                clearSecurityState();
+                currentAdminName = ADMIN_USERNAME;
+                sessionStorage.setItem('ecocanteen_admin_session', 'true');
+                sessionStorage.setItem('ecocanteen_admin_name', currentAdminName);
+                document.getElementById('admin-security-key').value = '';
+                showReports();
+            } catch (error) {
+                console.error(error);
+                alert('This browser cannot start the secure login. Please use an up-to-date browser over HTTPS.');
+            }
+        }
+
         function logout() { sessionStorage.removeItem('ecocanteen_admin_session'); document.getElementById('reports-app').classList.add('hidden'); document.getElementById('reports-login').classList.remove('hidden'); }
         function showReports() { document.getElementById('reports-login').classList.add('hidden'); document.getElementById('reports-app').classList.remove('hidden'); loadLogs(); }
         function loadLogs() {
             try {
                 firebase.initializeApp(firebaseConfig);
                 firebaseDatabase = firebase.database();
-                firebaseDatabase.ref('mcleods-canteen').on('value', snapshot => { const data = snapshot.val(); if (!data) return; scanLogs = Array.isArray(data.scanLogs) ? data.scanLogs : []; localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs)); renderReport(); });
+                firebaseDatabase.ref('mcleods-canteen/scanLogs').on('value', snapshot => { scanLogs = Array.isArray(snapshot.val()) ? snapshot.val() : []; localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs)); renderReport(); });
             } catch { renderReport(); }
         }
         function getFilteredLogs() {
