@@ -160,12 +160,68 @@
         function getAccountStatus(student) { if (!isStudentEnrolled(student)) return 'CLOSED'; if (student.paymentPaused === true) return 'PAUSED'; return isPaymentCurrentlyValid(student.id) ? 'ACTIVE' : 'PAYMENT DUE'; }
         function getStatusBadgeClass(status) { if (status === 'ACTIVE' || status === 'PAID') return 'bg-[#d8e2dc] text-[#2d4a3e]'; if (status === 'CLOSED') return 'bg-gray-200 text-gray-700'; if (status === 'PAUSED') return 'bg-red-100 text-red-800'; return 'bg-amber-100 text-amber-900'; }
 
+        // Persist locally first. Cloud synchronization is deliberately non-blocking so
+        // recording a payment never depends on Firebase responding quickly enough.
         function persist() {
             localStorage.setItem('ecocanteen_students', JSON.stringify(students));
             localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
             localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
-            if (firebaseDatabase && cloudDataReady) firebaseDatabase.ref('mcleods-canteen').update({ students, payments, paymentDeadlineDay }).catch(error => console.error('Firebase sync failed:', error));
             render();
+            syncPaymentStateToCloud();
+        }
+
+        let paymentCloudSyncPromise = null;
+        let pendingPaymentIds = new Set(JSON.parse(localStorage.getItem('ecocanteen_pending_payment_ids') || '[]'));
+
+        function savePendingPaymentIds() {
+            localStorage.setItem('ecocanteen_pending_payment_ids', JSON.stringify([...pendingPaymentIds]));
+        }
+
+        function syncPaymentStateToCloud() {
+            if (!firebaseDatabase || !cloudDataReady) return;
+            if (paymentCloudSyncPromise) return paymentCloudSyncPromise;
+
+            paymentCloudSyncPromise = firebaseDatabase.ref('mcleods-canteen').transaction(current => {
+                const cloud = current && typeof current === 'object' ? current : {};
+                const cloudStudents = Array.isArray(cloud.students) ? cloud.students : [];
+                const cloudPayments = Array.isArray(cloud.payments) ? cloud.payments : [];
+                const localStudentById = new Map(students.map(student => [student.id, student]));
+
+                // Merge by ID rather than replacing the whole arrays. This prevents a
+                // payment recorded on another device from being erased by this device.
+                const mergedStudents = cloudStudents.map(student => localStudentById.has(student.id) ? { ...student, ...localStudentById.get(student.id) } : student);
+                for (const student of students) {
+                    if (!mergedStudents.some(existing => existing.id === student.id)) mergedStudents.push(student);
+                }
+
+                const mergedPayments = [...cloudPayments];
+                for (const payment of payments) {
+                    const existingIndex = mergedPayments.findIndex(existing => existing.id === payment.id);
+                    if (existingIndex >= 0) mergedPayments[existingIndex] = { ...mergedPayments[existingIndex], ...payment };
+                    else mergedPayments.push(payment);
+                }
+
+                return { ...cloud, students: mergedStudents, payments: mergedPayments, paymentDeadlineDay };
+            }).then(result => {
+                if (!result.committed) throw new Error('Firebase transaction was not committed.');
+                const data = result.snapshot.val() || {};
+                students = Array.isArray(data.students) ? data.students : students;
+                payments = Array.isArray(data.payments) ? data.payments : payments;
+                paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
+                for (const id of [...pendingPaymentIds]) {
+                    if (payments.some(payment => payment.id === id)) pendingPaymentIds.delete(id);
+                }
+                savePendingPaymentIds();
+                localStorage.setItem('ecocanteen_students', JSON.stringify(students));
+                localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
+                render();
+            }).catch(error => {
+                console.error('Firebase payment sync failed; local payment is preserved:', error);
+            }).finally(() => {
+                paymentCloudSyncPromise = null;
+            });
+
+            return paymentCloudSyncPromise;
         }
 
         function removeExpiredClosedAccounts() {
@@ -202,15 +258,34 @@
                         paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
                     }
                     cloudDataReady = true;
+
+                    // If a payment was entered while Firebase was unavailable/loading,
+                    // keep that local payment instead of allowing the initial cloud read to
+                    // erase it. It will be merged into the cloud in the background.
+                    if (pendingPaymentIds.size) {
+                        const localPayments = JSON.parse(localStorage.getItem('ecocanteen_payments') || '[]');
+                        for (const localPayment of localPayments) {
+                            if (pendingPaymentIds.has(localPayment.id) && !payments.some(payment => payment.id === localPayment.id)) {
+                                payments.push(localPayment);
+                            }
+                        }
+                    }
                     removeExpiredClosedAccounts();
                     render();
+                    syncPaymentStateToCloud();
                     firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
                         if (!latestData) return;
                         students = Array.isArray(latestData.students) ? latestData.students : students;
-                        payments = Array.isArray(latestData.payments) ? latestData.payments : payments;
+                        const latestPayments = Array.isArray(latestData.payments) ? latestData.payments : payments;
+                        const localPendingPayments = payments.filter(payment => pendingPaymentIds.has(payment.id));
+                        payments = latestPayments.slice();
+                        for (const pendingPayment of localPendingPayments) {
+                            if (!payments.some(payment => payment.id === pendingPayment.id)) payments.push(pendingPayment);
+                        }
                         paymentDeadlineDay = Number(latestData.paymentDeadlineDay) || paymentDeadlineDay;
                         render();
+                        if (pendingPaymentIds.size) syncPaymentStateToCloud();
                     });
                 }).catch(() => { clearTimeout(cloudTimeoutId); cloudDataReady = true; render(); });
             } catch { clearTimeout(cloudTimeoutId); cloudDataReady = true; render(); }
@@ -278,21 +353,47 @@
         }
 
         function markPaymentAsPaid() {
-            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
+            // Payment completion must never be blocked by Firebase latency. Validate the
+            // form against the current local/cloud state, commit locally immediately,
+            // then synchronize in the background.
             const studentId = document.getElementById('payment-student').value;
             const mealMonth = document.getElementById('payment-meal-month').value;
             const paymentDateObj = parsePaymentDateInput(document.getElementById('payment-date').value);
             const student = students.find(item => item.id === studentId);
+
             if (!student || !isStudentEnrolled(student)) { alert('Select an enrolled student.'); return; }
-            if (!mealMonth || !paymentDateObj) { alert('Select the meal month and pick a payment date.'); return; }
-            if (getPaidPayment(studentId, mealMonth)) { alert(`${formatMealMonth(mealMonth)} is already marked as paid for ${student.name}.`); return; }
+            if (!mealMonth) { alert('Select the meal month.'); return; }
+            if (!paymentDateObj) { alert('Pick a payment date.'); return; }
+            if (getPaidPayment(studentId, mealMonth)) {
+                alert(`${formatMealMonth(mealMonth)} is already marked as paid for ${student.name}.`);
+                return;
+            }
+
             const paymentDate = formatDisplayDate(paymentDateObj);
             const expiresAt = addOneMonth(paymentDateObj).getTime();
-            student.paymentPaused = false; // A new payment always reactivates canteen access.
-            payments.unshift({ id: `PAY-${Date.now()}-${Math.floor(Math.random() * 1000)}`, studentId, studentName: student.name, mealMonth, paymentDate, expiresAt, recordedAt: new Date().toLocaleString(), status: 'PAID' });
+            const paymentId = `PAY-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+
+            student.paymentPaused = false;
+            payments.unshift({
+                id: paymentId,
+                studentId,
+                studentName: student.name,
+                mealMonth,
+                paymentDate,
+                expiresAt,
+                recordedAt: new Date().toLocaleString(),
+                status: 'PAID'
+            });
+            pendingPaymentIds.add(paymentId);
+            savePendingPaymentIds();
+
+            // The important part: update the UI/localStorage BEFORE touching Firebase.
+            // A slow/offline Firebase connection therefore cannot make the payment appear
+            // to fail. syncPaymentStateToCloud() retries whenever the cloud is ready.
             document.getElementById('payment-date').value = '';
             persist();
-            alert(`Payment recorded for ${student.name}. Canteen access is valid through ${new Date(expiresAt).toLocaleDateString('en-GB')}.`);
+
+            alert(`Payment recorded for ${student.name}. Canteen access is valid through ${new Date(expiresAt - 1).toLocaleDateString('en-GB')}.`);
         }
 
         function closeStudentAccount(id) {
@@ -337,7 +438,7 @@
             const stillLoading = isFirebaseConfigured() && !cloudDataReady;
             if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
             const completeBtn = document.querySelector('[onclick="markPaymentAsPaid()"]');
-            if (completeBtn) { completeBtn.disabled = stillLoading; completeBtn.classList.toggle('opacity-50', stillLoading); completeBtn.classList.toggle('cursor-not-allowed', stillLoading); }
+            if (completeBtn) { completeBtn.disabled = false; completeBtn.classList.remove('opacity-50', 'cursor-not-allowed'); }
 
             const select = document.getElementById('payment-student');
             const previousSelection = select.value;
