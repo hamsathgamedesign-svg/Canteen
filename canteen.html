@@ -373,7 +373,21 @@
             try {
                 firebase.initializeApp(firebaseConfig);
                 firebaseDatabase = firebase.database();
+                // Safety net: if Firebase never responds (blocked by a network filter,
+                // no internet, connection drops mid-request, etc.), cloudDataReady must
+                // not stay false forever - that would leave registration/payment
+                // actions disabled indefinitely with no clear explanation. After 8
+                // seconds with no response, proceed using local data instead.
+                const cloudTimeoutId = setTimeout(() => {
+                    if (!cloudDataReady) {
+                        console.warn('Firebase did not respond in time - continuing with local data.');
+                        cloudDataReady = true;
+                        refreshUI();
+                        switchView('scanner');
+                    }
+                }, 8000);
                 firebaseDatabase.ref('mcleods-canteen').once('value').then(snapshot => {
+                    clearTimeout(cloudTimeoutId);
                     const cloudData = snapshot.val();
                     if (cloudData) {
                         grades = Array.isArray(cloudData.grades) ? cloudData.grades : grades;
@@ -412,6 +426,7 @@
                         refreshUI();
                     });
                 }).catch(error => {
+                    clearTimeout(cloudTimeoutId);
                     console.error('Firebase loading failed:', error);
                     // We couldn't confirm the cloud state, so treat this device's
                     // local copy as the only source of truth for now rather than
