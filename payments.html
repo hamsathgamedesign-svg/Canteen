@@ -353,6 +353,7 @@
         }
 
         function markPaymentAsPaid() {
+          try {
             // Payment completion must never be blocked by Firebase latency. Validate the
             // form against the current local/cloud state, commit locally immediately,
             // then synchronize in the background.
@@ -394,6 +395,13 @@
             persist();
 
             alert(`Payment recorded for ${student.name}. Canteen access is valid through ${new Date(expiresAt - 1).toLocaleDateString('en-GB')}.`);
+          } catch (error) {
+            // If something genuinely unexpected happens, surface the real error instead
+            // of failing silently - this is the detail to report back if the button
+            // still doesn't work after this.
+            console.error('markPaymentAsPaid failed:', error);
+            alert('Something went wrong recording this payment: ' + (error && error.message ? error.message : error) + '\n\nThe payment was NOT saved. Please report this exact message.');
+          }
         }
 
         function closeStudentAccount(id) {

@@ -305,6 +305,14 @@
         let scanLogs = JSON.parse(localStorage.getItem('ecocanteen_logs')) || [];
         let badgePrintIndividual = null;
         let isAdminLoggedIn = sessionStorage.getItem('ecocanteen_admin_session') === 'true';
+        // Decides which view to land on once the initial cloud data load finishes.
+        // A visitor with an active admin session (e.g. arriving via the "Admin
+        // Dashboard" link from Payments/Reports) should land on the dashboard, not
+        // get bounced into the public scanner - loadCloudData() uses this instead of
+        // hardcoding 'scanner' so a logged-in admin's session is actually respected.
+        function initialViewAfterLoad() {
+            return isAdminLoggedIn ? 'dashboard' : 'scanner';
+        }
         let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
         let pendingAdminUsername = ''; // holds the username between login layer 1 and layer 2
         let html5QrCode = null;
@@ -366,7 +374,7 @@
                 console.info('Firebase is not configured. Using this browser\'s local storage.');
                 cloudDataReady = true;
                 refreshUI();
-                switchView('scanner');
+                switchView(initialViewAfterLoad());
                 return;
             }
 
@@ -383,7 +391,7 @@
                         console.warn('Firebase did not respond in time - continuing with local data.');
                         cloudDataReady = true;
                         refreshUI();
-                        switchView('scanner');
+                        switchView(initialViewAfterLoad());
                     }
                 }, 8000);
                 firebaseDatabase.ref('mcleods-canteen').once('value').then(snapshot => {
@@ -408,7 +416,7 @@
                     }
                     runAutomaticResets();
                     refreshUI();
-                    switchView('scanner');
+                    switchView(initialViewAfterLoad());
                     firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
                         if (!latestData) return;
@@ -433,13 +441,13 @@
                     // silently blocking every save.
                     cloudDataReady = true;
                     refreshUI();
-                    switchView('scanner');
+                    switchView(initialViewAfterLoad());
                 });
             } catch (error) {
                 console.error('Firebase setup failed:', error);
                 cloudDataReady = true;
                 refreshUI();
-                switchView('scanner');
+                switchView(initialViewAfterLoad());
             }
         }
 
