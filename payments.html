@@ -64,35 +64,21 @@
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                         <h3 class="text-md font-bold text-matte-green">Renew Monthly Canteen Payment</h3>
-                        <p class="text-xs text-gray-500 mt-1">Select the student, the first meal month, how many consecutive months are being paid, and the payment date. Multiple months can be stacked in one payment.</p>
+                        <p class="text-xs text-gray-500 mt-1">Select the student, the first month being paid for, how many school months are being paid together, and the payment date. Payments can be stacked on the same day, but the school year runs only from June through March.</p>
                     </div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     <select id="payment-student" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none"></select>
                     <input id="payment-meal-month" type="month" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
-                    <select id="payment-month-count" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none" aria-label="Number of months to pay">
-                        <option value="1">1 month</option>
-                        <option value="2">2 months</option>
-                        <option value="3">3 months</option>
-                        <option value="4">4 months</option>
-                        <option value="5">5 months</option>
-                        <option value="6">6 months</option>
-                        <option value="7">7 months</option>
-                        <option value="8">8 months</option>
-                        <option value="9">9 months</option>
-                        <option value="10">10 months</option>
-                        <option value="11">11 months</option>
-                        <option value="12">12 months</option>
-                    </select>
+                    <input id="payment-month-count" type="number" min="1" max="10" value="1" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none" title="Number of consecutive school months to pay">
                     <input id="payment-date" type="date" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
-                    <button type="button" onclick="markPaymentAsPaid()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition">Complete Payment</button>
+                    <button onclick="markPaymentAsPaid()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition sm:col-span-2 lg:col-span-1">Complete Payment</button>
                 </div>
-                <p id="payment-stack-preview" class="text-xs text-gray-500 mt-3">Select a starting month and payment date to see the stacked expiry.</p>
             </div>
 
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm">
                 <h3 class="text-md font-bold text-matte-green mb-1">Canteen Account Status</h3>
-                <p class="text-xs text-gray-500 mb-4">Access expires on the payment-day anniversary after the last paid month. Advance payments stack, even when several months are paid on the same day. Closed accounts keep their payment history.</p>
+                <p class="text-xs text-gray-500 mb-4">Access is valid for one month from each payment's date. Closed accounts keep their payment history.</p>
                 <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600"><th class="p-3">Student</th><th class="p-3">Access Valid Until</th><th class="p-3">Payment</th><th class="p-3">Account Status</th><th class="p-3">Action</th></tr></thead><tbody id="account-status-table-body" class="text-sm"></tbody></table></div>
             </div>
 
@@ -105,10 +91,8 @@
     </div>
 
     <script>
-        function cleanStudents(value) { return Array.isArray(value) ? value.filter(item => item && typeof item === 'object') : []; }
-        function cleanPayments(value) { return Array.isArray(value) ? value.filter(item => item && typeof item === 'object') : []; }
-        let students = cleanStudents(JSON.parse(localStorage.getItem('ecocanteen_students') || '[]'));
-        let payments = cleanPayments(JSON.parse(localStorage.getItem('ecocanteen_payments') || '[]'));
+        let students = JSON.parse(localStorage.getItem('ecocanteen_students')) || [];
+        let payments = JSON.parse(localStorage.getItem('ecocanteen_payments')) || [];
         let paymentDeadlineDay = Number(localStorage.getItem('ecocanteen_payment_deadline_day')) || 25;
         let firebaseDatabase = null;
         let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
@@ -132,43 +116,77 @@
         };
 
         function getMonthKey(date = new Date()) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`; }
-        function getUpcomingMonthKey() { const date = new Date(); date.setMonth(date.getMonth() + 1, 1); return getMonthKey(date); }
+        function getSchoolYearStart(year, month) { return month >= 6 ? year : year - 1; }
+        function getSchoolYearMonths(schoolYearStart) {
+            const months = [];
+            for (let month = 6; month <= 12; month++) months.push(`${schoolYearStart}-${String(month).padStart(2, '0')}`);
+            for (let month = 1; month <= 3; month++) months.push(`${schoolYearStart + 1}-${String(month).padStart(2, '0')}`);
+            return months;
+        }
+        function getPaymentWindow(now = new Date()) {
+            const month = now.getMonth() + 1;
+            const year = now.getFullYear();
+            if (month >= 6 && month <= 12) {
+                const schoolYearStart = year;
+                const schoolMonths = getSchoolYearMonths(schoolYearStart);
+                const currentKey = `${year}-${String(month).padStart(2, '0')}`;
+                return { mode: 'current', schoolYearStart, months: schoolMonths, minMonth: currentKey, maxMonth: schoolMonths[schoolMonths.length - 1] };
+            }
+            if (month >= 1 && month <= 3) {
+                const schoolYearStart = year - 1;
+                const schoolMonths = getSchoolYearMonths(schoolYearStart);
+                const currentKey = `${year}-${String(month).padStart(2, '0')}`;
+                return { mode: 'current', schoolYearStart, months: schoolMonths, minMonth: currentKey, maxMonth: schoolMonths[schoolMonths.length - 1] };
+            }
+            if (month === 4) {
+                const schoolYearStart = year;
+                const nextSchoolMonths = getSchoolYearMonths(schoolYearStart);
+                return { mode: 'next', schoolYearStart, months: nextSchoolMonths, minMonth: nextSchoolMonths[0], maxMonth: nextSchoolMonths[nextSchoolMonths.length - 1] };
+            }
+            return { mode: 'closed', schoolYearStart: year, months: [], minMonth: null, maxMonth: null };
+        }
+        function getUpcomingMonthKey() {
+            const window = getPaymentWindow();
+            if (!window.months.length) return '';
+            const current = getMonthKey();
+            const index = window.months.indexOf(current);
+            if (window.mode === 'next') return window.months[0];
+            return index >= 0 ? window.months[Math.min(index + 1, window.months.length - 1)] : window.months[0];
+        }
         function formatMealMonth(monthKey) { const [year, month] = monthKey.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)); }
+        function showSchoolYearPaymentPopup(message) {
+            // Use the same simple browser popup style already used throughout this page.
+            alert(message);
+        }
+        function getStackedMealMonths(firstMonth, count) {
+            const window = getPaymentWindow(new Date());
+            if (window.mode === 'closed') return { error: 'Cannot do that. The school year runs from June to March, and April is the only month when next school year fees can be entered. May is not a payment month.' };
+            const startIndex = window.months.indexOf(firstMonth);
+            if (startIndex < 0 || firstMonth < window.minMonth) return { error: `Cannot do that. ${formatMealMonth(firstMonth)} is outside the payment window for this school year.` };
+            const selected = window.months.slice(startIndex, startIndex + count);
+            if (selected.length !== count || selected[selected.length - 1] > window.maxMonth) {
+                return { error: `Cannot do that. Payments can only be recorded through March of the school year. You cannot pay beyond March.` };
+            }
+            return { months: selected };
+        }
         function isStudentEnrolled(student) { return student.enrolled !== false; }
-        function getPaidPayment(studentId, mealMonth) { return payments.find(payment => payment && String(payment.studentId) === String(studentId) && payment.mealMonth === mealMonth && payment.status === 'PAID'); }
-        function addMonths(date, months) {
-            const source = new Date(date);
-            const day = source.getDate();
-            const targetIndex = source.getFullYear() * 12 + source.getMonth() + Number(months || 0);
-            const targetYear = Math.floor(targetIndex / 12);
-            const targetMonth = targetIndex % 12;
-            const daysInTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
-            return new Date(targetYear, targetMonth, Math.min(day, daysInTargetMonth), 0, 0, 0, 0);
-        }
-        function addMonthsToMonthKey(monthKey, months) {
-            const [year, month] = String(monthKey).split('-').map(Number);
-            if (!year || !month) return '';
-            return getMonthKey(new Date(year, month - 1 + Number(months || 0), 1));
-        }
-        function getStackedExpiry(paymentDateObj, firstMealMonth, monthCount, currentExpiry) {
-            // One paid month always gives one month of access from the payment date.
-            // For advance payments, the expiry is also anchored to the month after the
-            // last meal month. This makes Sep 14 + Oct/Nov/Dec payments expire Jan 14.
-            const paymentBasedExpiry = addMonths(paymentDateObj, monthCount);
-            const lastMealMonth = addMonthsToMonthKey(firstMealMonth, monthCount - 1);
-            const [lastYear, lastMonth] = lastMealMonth.split('-').map(Number);
-            const afterLastMeal = new Date(lastYear, lastMonth, 1);
-            const day = paymentDateObj.getDate();
-            const daysInTarget = new Date(afterLastMeal.getFullYear(), afterLastMeal.getMonth() + 1, 0).getDate();
-            const mealBasedExpiry = new Date(afterLastMeal.getFullYear(), afterLastMeal.getMonth(), Math.min(day, daysInTarget), 0, 0, 0, 0);
-            const calculated = Math.max(paymentBasedExpiry.getTime(), mealBasedExpiry.getTime());
-            return Math.max(Number(currentExpiry) || 0, calculated);
-        }
+        function getPaidPayment(studentId, mealMonth) { return payments.find(payment => payment.studentId === studentId && payment.mealMonth === mealMonth && payment.status === 'PAID'); }
 
         // --- Date-anchored payment expiry ---------------------------------------------
-        // Expiry is anchored to the original payment day. Older one-month records remain
-        // compatible through getPaymentExpiry below.
-        function addOneMonth(date) { return addMonths(date, 1); }
+        // A payment is valid for exactly one month from the date it was PAID (not the
+        // calendar "meal month" it's labelled with). Paying on 11/09/2026 keeps the
+        // account active through the end of 11/10/2026, and it's due again from
+        // 12/10/2026. If the target month is shorter than the payment day (e.g. paid on
+        // the 31st), the day is capped to the last day of that month instead of
+        // overflowing into the month after.
+        function addOneMonth(date) {
+            const day = date.getDate();
+            const result = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+            const daysInTargetMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+            result.setDate(Math.min(day, daysInTargetMonth));
+            result.setHours(0, 0, 0, 0); // expires at the START of this day next month (00:00)
+            return result;
+        }
         function parseDisplayDate(value) {
             const match = String(value || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
             if (!match) return null;
@@ -199,8 +217,6 @@
         // Persist locally first. Cloud synchronization is deliberately non-blocking so
         // recording a payment never depends on Firebase responding quickly enough.
         function persist() {
-            students = cleanStudents(students);
-            payments = cleanPayments(payments);
             localStorage.setItem('ecocanteen_students', JSON.stringify(students));
             localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
             localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
@@ -209,7 +225,7 @@
         }
 
         let paymentCloudSyncPromise = null;
-        let pendingPaymentIds = new Set(Array.isArray(JSON.parse(localStorage.getItem('ecocanteen_pending_payment_ids') || '[]')) ? JSON.parse(localStorage.getItem('ecocanteen_pending_payment_ids') || '[]') : []);
+        let pendingPaymentIds = new Set(JSON.parse(localStorage.getItem('ecocanteen_pending_payment_ids') || '[]'));
 
         function savePendingPaymentIds() {
             localStorage.setItem('ecocanteen_pending_payment_ids', JSON.stringify([...pendingPaymentIds]));
@@ -221,8 +237,8 @@
 
             paymentCloudSyncPromise = firebaseDatabase.ref('mcleods-canteen').transaction(current => {
                 const cloud = current && typeof current === 'object' ? current : {};
-                const cloudStudents = cleanStudents(cloud.students);
-                const cloudPayments = cleanPayments(cloud.payments);
+                const cloudStudents = Array.isArray(cloud.students) ? cloud.students : [];
+                const cloudPayments = Array.isArray(cloud.payments) ? cloud.payments : [];
                 const localStudentById = new Map(students.map(student => [student.id, student]));
 
                 // Merge by ID rather than replacing the whole arrays. This prevents a
@@ -243,8 +259,8 @@
             }).then(result => {
                 if (!result.committed) throw new Error('Firebase transaction was not committed.');
                 const data = result.snapshot.val() || {};
-                students = cleanStudents(data.students || students);
-                payments = cleanPayments(data.payments || payments);
+                students = Array.isArray(data.students) ? data.students : students;
+                payments = Array.isArray(data.payments) ? data.payments : payments;
                 paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
                 for (const id of [...pendingPaymentIds]) {
                     if (payments.some(payment => payment.id === id)) pendingPaymentIds.delete(id);
@@ -291,8 +307,8 @@
                     clearTimeout(cloudTimeoutId);
                     const data = snapshot.val();
                     if (data) {
-                        students = cleanStudents(data.students || students);
-                        payments = cleanPayments(data.payments || payments);
+                        students = Array.isArray(data.students) ? data.students : students;
+                        payments = Array.isArray(data.payments) ? data.payments : payments;
                         paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
                     }
                     cloudDataReady = true;
@@ -301,7 +317,7 @@
                     // keep that local payment instead of allowing the initial cloud read to
                     // erase it. It will be merged into the cloud in the background.
                     if (pendingPaymentIds.size) {
-                        const localPayments = cleanPayments(JSON.parse(localStorage.getItem('ecocanteen_payments') || '[]'));
+                        const localPayments = JSON.parse(localStorage.getItem('ecocanteen_payments') || '[]');
                         for (const localPayment of localPayments) {
                             if (pendingPaymentIds.has(localPayment.id) && !payments.some(payment => payment.id === localPayment.id)) {
                                 payments.push(localPayment);
@@ -392,57 +408,77 @@
 
         function markPaymentAsPaid() {
           try {
+            // Payment completion must never be blocked by Firebase latency. Validate the
+            // form against the current local/cloud state, commit locally immediately,
+            // then synchronize in the background.
             const studentId = document.getElementById('payment-student').value;
-            const firstMealMonth = document.getElementById('payment-meal-month').value;
-            const monthCount = Math.max(1, Math.min(12, Number(document.getElementById('payment-month-count').value) || 1));
+            const mealMonth = document.getElementById('payment-meal-month').value;
+            const monthCount = Math.max(1, Math.min(10, Number(document.getElementById('payment-month-count').value) || 1));
             const paymentDateObj = parsePaymentDateInput(document.getElementById('payment-date').value);
-            const student = students.find(item => item && String(item.id) === String(studentId));
+            const student = students.find(item => item.id === studentId);
 
             if (!student || !isStudentEnrolled(student)) { alert('Select an enrolled student.'); return; }
-            if (!firstMealMonth) { alert('Select the first meal month.'); return; }
+            if (!mealMonth) { alert('Select the first meal month.'); return; }
             if (!paymentDateObj) { alert('Pick a payment date.'); return; }
 
-            const monthsToRecord = Array.from({ length: monthCount }, (_, index) => addMonthsToMonthKey(firstMealMonth, index));
-            const alreadyPaid = monthsToRecord.filter(monthKey => getPaidPayment(studentId, monthKey));
-            if (alreadyPaid.length) {
-                alert(`${student.name} already has payment recorded for: ${alreadyPaid.map(formatMealMonth).join(', ')}.`);
+            // The payment date determines which school-year window is currently open.
+            // This also means April can be used to record the NEXT school year, but May
+            // cannot be used as a workaround.
+            const todayPaymentWindow = getPaymentWindow(new Date());
+            const window = getPaymentWindow(paymentDateObj);
+            if (todayPaymentWindow.mode === 'closed') {
+                showSchoolYearPaymentPopup('Cannot do that. Payments are only entered during the school year (June to March), with April reserved for next school year fees. May is not a payment month.');
+                return;
+            }
+            if (window.mode === 'closed' || window.mode !== todayPaymentWindow.mode || window.schoolYearStart !== todayPaymentWindow.schoolYearStart) {
+                showSchoolYearPaymentPopup("Cannot do that. The payment date must be within the currently allowed payment period. Next school year's fees can only be entered in April, and the school year itself runs from June to March.");
                 return;
             }
 
-            const currentExpiry = getLatestPaymentExpiry(student.id);
-            const expiresAt = getStackedExpiry(paymentDateObj, firstMealMonth, monthCount, currentExpiry);
+            const stack = getStackedMealMonths(mealMonth, monthCount);
+            if (stack.error) { showSchoolYearPaymentPopup(stack.error); return; }
+
+            const alreadyPaid = stack.months.filter(month => getPaidPayment(studentId, month));
+            if (alreadyPaid.length) {
+                showSchoolYearPaymentPopup(`${alreadyPaid.map(formatMealMonth).join(', ')} ${alreadyPaid.length === 1 ? 'is' : 'are'} already marked as paid for ${student.name}.`);
+                return;
+            }
+
             const paymentDate = formatDisplayDate(paymentDateObj);
-            const stackId = `STACK-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
             const recordedAt = new Date().toLocaleString();
+            const paymentRecords = [];
+
+            // Every selected month is recorded separately, all on the same payment date.
+            // Expiry advances one month per stacked school month: pay Oct+Nov+Dec on
+            // 14/09 -> the final expiry is 14/01. March is capped at the school-year end.
+            stack.months.forEach((monthKey, index) => {
+                let expiresAt;
+                if (Number(monthKey.slice(5)) === 3) {
+                    // March is the final school month; access must never spill into April.
+                    expiresAt = new Date(Number(monthKey.slice(0, 4)), 3, 1, 0, 0, 0, 0).getTime();
+                } else {
+                    const [targetYear, targetMonth] = monthKey.split('-').map(Number);
+                    const expiryMonthDate = new Date(targetYear, targetMonth - 1 + 1, 1);
+                    const daysInExpiryMonth = new Date(expiryMonthDate.getFullYear(), expiryMonthDate.getMonth() + 1, 0).getDate();
+                    const expiryDay = Math.min(paymentDateObj.getDate(), daysInExpiryMonth);
+                    const expiryDate = new Date(expiryMonthDate.getFullYear(), expiryMonthDate.getMonth(), expiryDay, 0, 0, 0, 0);
+                    expiresAt = expiryDate.getTime();
+                }
+                const paymentId = `PAY-${Date.now()}-${index}-${Math.floor(Math.random() * 1000000)}`;
+                paymentRecords.push({ id: paymentId, studentId, studentName: student.name, mealMonth: monthKey, paymentDate, expiresAt, recordedAt, status: 'PAID' });
+            });
 
             student.paymentPaused = false;
-            const newPayments = monthsToRecord.map((monthKey, index) => ({
-                id: `PAY-${Date.now()}-${index}-${Math.floor(Math.random() * 1000000)}`,
-                studentId: student.id,
-                studentName: student.name,
-                mealMonth: monthKey,
-                paymentDate,
-                expiresAt,
-                recordedAt,
-                status: 'PAID',
-                stackId,
-                stackPosition: index + 1,
-                stackMonths: monthCount
-            }));
-
-            payments.unshift(...newPayments);
-            const pendingIds = JSON.parse(localStorage.getItem('ecocanteen_pending_payment_ids') || '[]');
-            const pendingSet = new Set(Array.isArray(pendingIds) ? pendingIds : []);
-            newPayments.forEach(payment => pendingSet.add(payment.id));
-            localStorage.setItem('ecocanteen_pending_payment_ids', JSON.stringify([...pendingSet]));
+            payments.unshift(...paymentRecords);
+            paymentRecords.forEach(payment => pendingPaymentIds.add(payment.id));
+            savePendingPaymentIds();
 
             document.getElementById('payment-date').value = '';
             document.getElementById('payment-month-count').value = '1';
             persist();
-            updatePaymentStackPreview();
 
-            const expiryLabel = new Date(expiresAt - 1).toLocaleDateString('en-GB');
-            alert(`${monthCount} month${monthCount === 1 ? '' : 's'} of payment recorded for ${student.name}. Access is valid through ${expiryLabel}.`);
+            const finalExpiry = Math.max(...paymentRecords.map(payment => payment.expiresAt));
+            alert(`${stack.months.length} month${stack.months.length === 1 ? '' : 's'} recorded for ${student.name}: ${stack.months.map(formatMealMonth).join(', ')}. Canteen access is valid through ${new Date(finalExpiry - 1).toLocaleDateString('en-GB')}.`);
           } catch (error) {
             console.error('markPaymentAsPaid failed:', error);
             alert('Something went wrong recording this payment: ' + (error && error.message ? error.message : error) + '\n\nThe payment was NOT saved. Please report this exact message.');
@@ -486,24 +522,6 @@
             persist();
         }
 
-        function updatePaymentStackPreview() {
-            const preview = document.getElementById('payment-stack-preview');
-            if (!preview) return;
-            const firstMealMonth = document.getElementById('payment-meal-month').value;
-            const monthCount = Math.max(1, Math.min(12, Number(document.getElementById('payment-month-count').value) || 1));
-            const dateValue = document.getElementById('payment-date').value;
-            const paymentDateObj = parsePaymentDateInput(dateValue);
-            if (!firstMealMonth || !paymentDateObj) {
-                preview.textContent = 'Select a starting month and payment date to see the stacked expiry.';
-                return;
-            }
-            const lastMealMonth = addMonthsToMonthKey(firstMealMonth, monthCount - 1);
-            const currentStudentId = document.getElementById('payment-student').value;
-            const currentExpiry = currentStudentId ? getLatestPaymentExpiry(currentStudentId) : null;
-            const expiresAt = getStackedExpiry(paymentDateObj, firstMealMonth, monthCount, currentExpiry);
-            preview.textContent = `${formatMealMonth(firstMealMonth)} → ${formatMealMonth(lastMealMonth)} (${monthCount} month${monthCount === 1 ? '' : 's'}) • access expires ${new Date(expiresAt - 1).toLocaleDateString('en-GB')}.`;
-        }
-
         function render() {
             const syncBanner = document.getElementById('cloud-sync-banner');
             const stillLoading = isFirebaseConfigured() && !cloudDataReady;
@@ -516,7 +534,27 @@
             const enrolledStudents = students.filter(isStudentEnrolled);
             select.innerHTML = enrolledStudents.length ? enrolledStudents.map(student => `<option value="${student.id}">${student.name} (${student.id})</option>`).join('') : '<option value="">No enrolled students available</option>';
             if (enrolledStudents.some(student => student.id === previousSelection)) select.value = previousSelection;
-            if (!document.getElementById('payment-meal-month').value) document.getElementById('payment-meal-month').value = getUpcomingMonthKey();
+            const mealMonthInput = document.getElementById('payment-meal-month');
+            const paymentWindow = getPaymentWindow();
+            if (paymentWindow.mode === 'closed') {
+                mealMonthInput.value = '';
+                mealMonthInput.min = '';
+                mealMonthInput.max = '';
+                document.getElementById('payment-date').max = '';
+            } else {
+                mealMonthInput.min = paymentWindow.minMonth;
+                mealMonthInput.max = paymentWindow.maxMonth;
+                document.getElementById('payment-date').max = new Date().toISOString().slice(0, 10);
+                if (!mealMonthInput.value || mealMonthInput.value < paymentWindow.minMonth || mealMonthInput.value > paymentWindow.maxMonth) mealMonthInput.value = getUpcomingMonthKey();
+            }
+            const monthCountInput = document.getElementById('payment-month-count');
+            if (monthCountInput) {
+                const selectedStart = mealMonthInput.value;
+                const startIndex = paymentWindow.months.indexOf(selectedStart);
+                const remaining = startIndex >= 0 ? paymentWindow.months.length - startIndex : 1;
+                monthCountInput.max = String(Math.max(1, Math.min(10, remaining)));
+                if (Number(monthCountInput.value) > Number(monthCountInput.max)) monthCountInput.value = monthCountInput.max;
+            }
             document.getElementById('account-status-table-body').innerHTML = students.length ? students.map(student => {
                 const expiresAt = getLatestPaymentExpiry(student.id);
                 const validNow = isPaymentCurrentlyValid(student.id);
@@ -525,13 +563,22 @@
                 return `<tr class="border-b border-gray-100"><td class="p-3 font-medium">${student.name}</td><td class="p-3 text-xs">${expiryLabel}</td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(validNow ? 'PAID' : 'PAYMENT DUE')}">${validNow ? 'PAID' : 'UNPAID'}</span></td><td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${getStatusBadgeClass(status)}">${status}</span></td><td class="p-3">${isStudentEnrolled(student) ? `<button onclick="openPaymentForStudent('${student.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Record Payment</button> ${student.paymentPaused ? `<button onclick="unpauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseStudentAccount('${student.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeStudentAccount('${student.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<button onclick="deleteStudentPermanently('${student.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td></tr>`;
             }).join('') : '<tr><td colspan="5" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>';
             document.getElementById('payment-audit-table-body').innerHTML = payments.length ? payments.map(payment => `<tr class="border-b border-gray-100"><td class="p-3 text-xs text-gray-500">${payment.paymentDate || 'Not recorded'}</td><td class="p-3 font-medium">${payment.studentName}</td><td class="p-3 text-xs">${formatMealMonth(payment.mealMonth)}</td></tr>`).join('') : '<tr><td colspan="3" class="p-4 text-center text-gray-400">No payments recorded yet.</td></tr>';
-            updatePaymentStackPreview();
         }
 
-        ['payment-meal-month', 'payment-month-count', 'payment-date', 'payment-student'].forEach(id => {
-            const element = document.getElementById(id);
-            if (element) element.addEventListener('change', updatePaymentStackPreview);
+        document.getElementById('payment-meal-month').addEventListener('change', () => {
+            const input = document.getElementById('payment-month-count');
+            const window = getPaymentWindow();
+            const startIndex = window.months.indexOf(document.getElementById('payment-meal-month').value);
+            const remaining = startIndex >= 0 ? window.months.length - startIndex : 1;
+            input.max = String(Math.max(1, Math.min(10, remaining)));
+            if (Number(input.value) > Number(input.max)) input.value = input.max;
         });
+        document.getElementById('payment-month-count').addEventListener('change', () => {
+            const input = document.getElementById('payment-month-count');
+            const max = Number(input.max) || 10;
+            input.value = String(Math.max(1, Math.min(max, Number(input.value) || 1)));
+        });
+
         if (sessionStorage.getItem('ecocanteen_admin_session') === 'true') showApp();
         else document.getElementById('payment-login').classList.remove('hidden');
         setInterval(removeExpiredClosedAccounts, 60 * 1000);
