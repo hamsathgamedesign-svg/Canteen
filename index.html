@@ -37,8 +37,15 @@
            content. pointer-events: none so it never intercepts clicks, and header/
            main are lifted onto their own stacking layer (z-index: 1) so real content
            always renders above it. */
-        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(85vw, 680px) no-repeat; opacity: 0.08; pointer-events: none; z-index: -1; }
-        body > header, body > main { position: relative; z-index: 1; }
+        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(85vw, 680px) no-repeat; opacity: 0.08; pointer-events: none; z-index: 0; }
+        /* Everything the person actually looks at (header, scanner, dashboard, popup)
+           lives inside this single wrapper, which is explicitly lifted onto its own
+           stacking layer above the watermark. Using one wrapper - instead of trying to
+           position header and main separately - removes any ambiguity about ordering:
+           this whole layer (z-index: 1) always paints above the watermark (z-index: 0),
+           and everything inside it (including the camera at z-index: 2 and the scan
+           popup at z-index: 60) stacks correctly relative to each other within it. */
+        .app-content { position: relative; z-index: 1; }
         #reader { position: relative; z-index: 2; }
 
         .print-card {
@@ -82,6 +89,7 @@
     <div class="school-watermark" aria-hidden="true"></div>
 
     <!-- Header Navigation -->
+    <div class="app-content flex flex-col flex-grow">
     <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
         <div class="flex items-center gap-2">
             <span role="img" aria-label="McLEOD's English School logo" class="header-school-logo"></span>
@@ -291,6 +299,7 @@
         </div>
 
     </main>
+    </div>
 
     <script>
         // Data Store Initialization

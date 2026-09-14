@@ -16,13 +16,14 @@
         .btn-matte { background-color: #2d4a3e; color: #f4f6f0; }
         .btn-matte:hover { background-color: #243c32; }
         .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
-        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(85vw, 680px) no-repeat; opacity: 0.08; pointer-events: none; z-index: -1; }
-        body > header, body > main { position: relative; z-index: 1; }
+        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(85vw, 680px) no-repeat; opacity: 0.08; pointer-events: none; z-index: 0; }
+        .app-content { position: relative; z-index: 1; }
         @media print { header, .no-print, .school-watermark { display: none !important; } body { background: white; } main { max-width: none !important; padding: 0 !important; } }
     </style>
 </head>
 <body class="min-h-screen">
     <div class="school-watermark" aria-hidden="true"></div>
+    <div class="app-content">
     <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
         <div class="flex items-center gap-2">
             <span role="img" aria-label="McLEOD's English School logo" class="header-school-logo"></span>
@@ -90,6 +91,7 @@
             </div>
         </section>
     </main>
+    </div>
 
     <script>
         let scanLogs = JSON.parse(localStorage.getItem('ecocanteen_logs')) || [];
