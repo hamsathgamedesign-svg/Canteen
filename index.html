@@ -37,8 +37,9 @@
            content. pointer-events: none so it never intercepts clicks, and header/
            main are lifted onto their own stacking layer (z-index: 1) so real content
            always renders above it. */
-        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(60vw, 480px) no-repeat; opacity: 0.08; pointer-events: none; z-index: 0; }
+        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(85vw, 680px) no-repeat; opacity: 0.08; pointer-events: none; z-index: -1; }
         body > header, body > main { position: relative; z-index: 1; }
+        #reader { position: relative; z-index: 2; }
 
         .print-card {
             background: #ffffff;
