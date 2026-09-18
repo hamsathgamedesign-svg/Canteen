@@ -584,6 +584,17 @@
             return expiresAt !== null && asOf < expiresAt;
         }
 
+        // Daily Meal Plan: ₹80 buys exactly ONE meal on one calendar day.
+        function getValidDailyPlan(studentId, asOf = new Date()) {
+            const dayKey = getDayKey(asOf);
+            return payments.find(payment =>
+                payment && payment.status === 'PAID' &&
+                payment.planType === 'daily' &&
+                String(payment.studentId) === String(studentId) &&
+                payment.dailyDate === dayKey
+            ) || null;
+        }
+
         function isFeePaused(student) {
             return student.paymentPaused === true;
         }
@@ -827,7 +838,8 @@
                     saveAppData();
                     return;
                 }
-                if (!isPaymentCurrentlyValid(person.id)) {
+                const dailyPlan = getValidDailyPlan(person.id);
+                if (!isPaymentCurrentlyValid(person.id) && !dailyPlan) {
                     const lastExpiry = getLatestPaymentExpiry(person.id);
                     showScanPopup(false, lastExpiry
                         ? `${person.name}'s canteen payment expired on ${new Date(lastExpiry).toLocaleDateString('en-GB')}.`
@@ -842,6 +854,39 @@
                 if (category === 'Breakfast' && !isBreakfastAvailableForStudent(person)) {
                     showScanPopup(false, `Breakfast is only available for Grades 1 and 2. ${person.name} is in ${person.grade}.`);
                     addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Breakfast Not Available)' });
+                    saveAppData();
+                    return;
+                }
+
+                // Daily Meal Plan: once a daily-plan student claims any meal,
+                // every other meal category is rejected for the rest of that day.
+                if (dailyPlan) {
+                    if (!dailyTracker[person.id]) dailyTracker[person.id] = {};
+                    if (dailyTracker[person.id].__daily_plan__ === true) {
+                        showScanPopup(false, `${person.name} has already used their ₹80 Daily Meal Plan today. Only ONE meal is allowed.`);
+                        addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Daily Plan Already Used)' });
+                    } else {
+                        dailyTracker[person.id].__daily_plan__ = true;
+                        showScanPopup(true, `₹80 Daily Meal Plan used for ${person.name} — ${category} [${person.grade} / ${person.division}]`);
+                        addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Success (Daily Plan)' });
+                    }
+                    saveAppData();
+                    return;
+                }
+
+                // A Daily Meal Plan is different from the monthly plan: ₹80 permits
+                // exactly ONE meal for the whole day, regardless of which meal category
+                // is chosen. Breakfast remains subject to the normal Grade 1–2 rule.
+                if (dailyPlan) {
+                    if (!dailyTracker[person.id]) dailyTracker[person.id] = {};
+                    if (dailyTracker[person.id].__daily_plan__ === true) {
+                        showScanPopup(false, `${person.name} has already used their ₹80 Daily Meal Plan today. Only ONE meal is allowed.`);
+                        addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Daily Plan Already Used)' });
+                    } else {
+                        dailyTracker[person.id].__daily_plan__ = true;
+                        showScanPopup(true, `₹80 Daily Meal Plan used for ${person.name} — ${category} [${person.grade} / ${person.division}]`);
+                        addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Success (Daily Plan)' });
+                    }
                     saveAppData();
                     return;
                 }

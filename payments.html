@@ -63,17 +63,22 @@
                 <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Loading the latest data from the cloud - please wait a moment before recording payments or editing accounts.</p>
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
-                        <h3 class="text-md font-bold text-matte-green">Renew Monthly Canteen Payment</h3>
-                        <p class="text-xs text-gray-500 mt-1">Select the student, the first month being paid for, how many school months are being paid together, and the payment date. Payments can be stacked on the same day, but the school year runs only from June through March.</p>
+                        <h3 class="text-md font-bold text-matte-green">Canteen Payment</h3>
+                        <p class="text-xs text-gray-500 mt-1">Choose a Monthly Plan or the Daily Meal Plan. The Daily Meal Plan costs ₹80 and gives the student exactly ONE meal on the selected date, at any available meal time.</p>
                     </div>
                 </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                     <select id="payment-student" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none"></select>
+                    <select id="payment-plan-type" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none" title="Payment plan">
+                        <option value="monthly">Monthly Plan</option>
+                        <option value="daily">Daily Meal Plan — ₹80</option>
+                    </select>
                     <input id="payment-meal-month" type="month" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
                     <input id="payment-month-count" type="number" min="1" max="10" value="1" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none" title="Number of consecutive school months to pay">
                     <input id="payment-date" type="date" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
                     <button onclick="markPaymentAsPaid()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition sm:col-span-2 lg:col-span-1">Complete Payment</button>
                 </div>
+                <p id="daily-plan-help" class="hidden text-xs text-gray-600 bg-[#f5f8f6] border border-[#d8e2dc] rounded-lg p-3">Daily Meal Plan: ₹80 for exactly one meal on the selected date. The student may choose breakfast (Grades 1–2 only), lunch, mid morning, or mid evening — but only ONE meal can be claimed that day.</p>
             </div>
 
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm">
@@ -154,6 +159,7 @@
             return index >= 0 ? window.months[Math.min(index + 1, window.months.length - 1)] : window.months[0];
         }
         function formatMealMonth(monthKey) { const [year, month] = monthKey.split('-').map(Number); return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1)); }
+        function getDayKey(date = new Date()) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; }
         function showSchoolYearPaymentPopup(message) {
             // Use the same simple browser popup style already used throughout this page.
             alert(message);
@@ -418,8 +424,47 @@
             const student = students.find(item => item.id === studentId);
 
             if (!student || !isStudentEnrolled(student)) { alert('Select an enrolled student.'); return; }
-            if (!mealMonth) { alert('Select the first meal month.'); return; }
             if (!paymentDateObj) { alert('Pick a payment date.'); return; }
+
+            const planType = document.getElementById('payment-plan-type')?.value || 'monthly';
+            if (planType === 'daily') {
+                const dayKey = getDayKey(paymentDateObj);
+                const alreadyPaidDaily = payments.some(payment =>
+                    payment && payment.status === 'PAID' &&
+                    payment.planType === 'daily' &&
+                    String(payment.studentId) === String(student.id) &&
+                    payment.dailyDate === dayKey
+                );
+                if (alreadyPaidDaily) {
+                    showSchoolYearPaymentPopup(`${student.name} already has an ₹80 Daily Meal Plan for ${formatDisplayDate(paymentDateObj)}. Only one daily plan can be purchased for that date.`);
+                    return;
+                }
+
+                const paymentDate = formatDisplayDate(paymentDateObj);
+                const paymentId = `DAY-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+                const dailyPayment = {
+                    id: paymentId,
+                    studentId: student.id,
+                    studentName: student.name,
+                    planType: 'daily',
+                    dailyDate: dayKey,
+                    amount: 80,
+                    paymentDate,
+                    expiresAt: new Date(paymentDateObj.getFullYear(), paymentDateObj.getMonth(), paymentDateObj.getDate() + 1, 0, 0, 0, 0).getTime(),
+                    recordedAt: new Date().toLocaleString(),
+                    status: 'PAID'
+                };
+                student.paymentPaused = false;
+                payments.unshift(dailyPayment);
+                pendingPaymentIds.add(paymentId);
+                savePendingPaymentIds();
+                document.getElementById('payment-date').value = '';
+                persist();
+                alert(`₹80 Daily Meal Plan recorded for ${student.name} for ${formatDisplayDate(paymentDateObj)}. They can claim ONE meal that day.`);
+                return;
+            }
+
+            if (!mealMonth) { alert('Select the first meal month.'); return; }
 
             // The payment date determines which school-year window is currently open.
             // This also means April can be used to record the NEXT school year, but May
@@ -565,6 +610,19 @@
             document.getElementById('payment-audit-table-body').innerHTML = payments.length ? payments.map(payment => `<tr class="border-b border-gray-100"><td class="p-3 text-xs text-gray-500">${payment.paymentDate || 'Not recorded'}</td><td class="p-3 font-medium">${payment.studentName}</td><td class="p-3 text-xs">${formatMealMonth(payment.mealMonth)}</td></tr>`).join('') : '<tr><td colspan="3" class="p-4 text-center text-gray-400">No payments recorded yet.</td></tr>';
         }
 
+        document.getElementById('payment-plan-type').addEventListener('change', () => {
+            const daily = document.getElementById('payment-plan-type').value === 'daily';
+            document.getElementById('payment-meal-month').classList.toggle('hidden', daily);
+            document.getElementById('payment-month-count').classList.toggle('hidden', daily);
+            document.getElementById('daily-plan-help').classList.toggle('hidden', !daily);
+            if (daily) {
+                document.getElementById('payment-date').max = new Date().toISOString().slice(0, 10);
+                document.getElementById('payment-date').value = new Date().toISOString().slice(0, 10);
+            } else {
+                document.getElementById('payment-date').value = '';
+                render();
+            }
+        });
         document.getElementById('payment-meal-month').addEventListener('change', () => {
             const input = document.getElementById('payment-month-count');
             const window = getPaymentWindow();
