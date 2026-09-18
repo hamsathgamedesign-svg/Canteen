@@ -5,7 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monthly Canteen Payments | McLEOD's English School</title>
     <link rel="icon" type="image/png" href="Not needed/McLeod's English School LOGO.png">
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<script>
+(function(){
+    const savedTheme = localStorage.getItem('mccafe-theme');
+    document.documentElement.setAttribute('data-theme', savedTheme === 'dark' ? 'dark' : 'light');
+})();
+</script>
+        <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
     <style>
@@ -15,9 +21,102 @@
         .btn-matte { background-color: #2d4a3e; color: #f4f6f0; }
         .btn-matte:hover { background-color: #243c32; }
         .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
-        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(85vw, 680px) no-repeat; opacity: 0.08; pointer-events: none; z-index: 0; }
-        .app-content { position: relative; z-index: 1; }
-    </style>
+        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(85vw, 680px) no-repeat; opacity: 0.22; filter: brightness(1) saturate(1.05); pointer-events: none; z-index: 0; }
+        /* Keep the watermark faint, but make the logo about 60% brighter in dark mode so it is still visible. */
+        html[data-theme="dark"] .school-watermark { opacity: 0.22; filter: brightness(1.6) saturate(1.08); }
+        .app-content { position: relative; z-index: auto; }
+
+        /* Persistent light/dark mode */
+        :root {
+            --theme-bg: #f4f6f0;
+            --theme-text: #2d3732;
+            --theme-card: #ffffff;
+            --theme-border: #d8e2dc;
+            --theme-muted: #6b7280;
+            --theme-input: #ffffff;
+            --theme-input-border: #d1d5db;
+            --theme-soft: #eef3ee;
+            --theme-shadow: rgba(0,0,0,0.08);
+        }
+        html[data-theme="dark"] {
+            --theme-bg: #121815;
+            --theme-text: #e8eee9;
+            --theme-card: #1b2420;
+            --theme-border: #34423b;
+            --theme-muted: #aab7b0;
+            --theme-input: #151c19;
+            --theme-input-border: #46564e;
+            --theme-soft: #24312b;
+            --theme-shadow: rgba(0,0,0,0.35);
+        }
+        html[data-theme="dark"] body { background-color: var(--theme-bg) !important; color: var(--theme-text) !important; }
+        html[data-theme="dark"] .bg-white { background-color: var(--theme-card) !important; }
+        html[data-theme="dark"] .bg-gray-50 { background-color: #202a25 !important; }
+        html[data-theme="dark"] .bg-gray-100 { background-color: #26322c !important; }
+        html[data-theme="dark"] .bg-green-50 { background-color: #193024 !important; }
+        html[data-theme="dark"] .bg-red-50 { background-color: #351f21 !important; }
+        html[data-theme="dark"] .bg-yellow-50 { background-color: #342f1d !important; }
+        html[data-theme="dark"] .bg-amber-50 { background-color: #352c1b !important; }
+        html[data-theme="dark"] .bg-blue-50 { background-color: #1d2b39 !important; }
+        html[data-theme="dark"] .text-gray-500,
+        html[data-theme="dark"] .text-gray-600,
+        html[data-theme="dark"] .text-gray-700 { color: var(--theme-muted) !important; }
+        html[data-theme="dark"] .text-gray-800,
+        html[data-theme="dark"] .text-gray-900 { color: var(--theme-text) !important; }
+        html[data-theme="dark"] [class*="border-gray-"],
+        html[data-theme="dark"] [class*="border-[#d8e2dc]"] { border-color: var(--theme-border) !important; }
+        html[data-theme="dark"] input,
+        html[data-theme="dark"] select,
+        html[data-theme="dark"] textarea { background-color: var(--theme-input) !important; color: var(--theme-text) !important; border-color: var(--theme-input-border) !important; }
+        html[data-theme="dark"] input::placeholder,
+        html[data-theme="dark"] textarea::placeholder { color: #819087 !important; }
+        html[data-theme="dark"] table { color: var(--theme-text); }
+        html[data-theme="dark"] th { background-color: var(--theme-soft) !important; color: var(--theme-text) !important; }
+        html[data-theme="dark"] td { border-color: var(--theme-border) !important; }
+        html[data-theme="dark"] .shadow-sm,
+        html[data-theme="dark"] .shadow-md,
+        html[data-theme="dark"] .shadow-lg,
+        html[data-theme="dark"] .shadow-xl { box-shadow: 0 8px 24px var(--theme-shadow) !important; }
+        html[data-theme="dark"] #scan-feedback { background: #1b2420; color: var(--theme-text); }
+        html[data-theme="dark"] .scan-popup-reason { color: #b8c3bd; }
+        html[data-theme="dark"] .scan-popup-close { color: #aab7b0; }
+        html[data-theme="dark"] .scan-popup-close:hover { color: #ffffff; }
+        html[data-theme="dark"] .print-card { background: #ffffff !important; color: #1f2937 !important; }
+        #theme-toggle { white-space: nowrap; }
+    
+@media print {
+  html, body, body * {
+    background: #fff !important;
+    background-color: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+  body { filter: none !important; }
+  .school-watermark { display: none !important; }
+  .no-print, button, .theme-toggle, nav { display: none !important; }
+}
+
+/* Always use the normal light appearance when printing */
+@media print {
+  html[data-theme="dark"], html[data-theme="dark"] body { background: #fff !important; color: #000 !important; }
+  #printable-area, #printable-area * {
+    --theme-bg: #f4f6f0 !important;
+    --theme-text: #2d3732 !important;
+    --theme-card: #fff !important;
+    --theme-border: #d8e2dc !important;
+    --theme-muted: #6b7280 !important;
+    --theme-input: #fff !important;
+    --theme-input-border: #d1d5db !important;
+    --theme-soft: #eef3ee !important;
+    --theme-shadow: rgba(0,0,0,.08) !important;
+  }
+  #printable-area, #printable-area * { background-color: #fff !important; color: #000 !important; }
+  #printable-area .print-card { background: #fff !important; color: #000 !important; border-color: #d8e2dc !important; box-shadow: none !important; }
+}
+.app-content { position: relative; z-index: 1; }
+#reader { position: relative; z-index: 30; }
+#scan-feedback { position: fixed; z-index: 60; }
+</style>
 </head>
 <body class="min-h-screen">
     <div class="school-watermark" aria-hidden="true"></div>
@@ -28,6 +127,7 @@
             <h1 class="text-xl font-bold tracking-wide">McCafe Monitor</h1>
         </div>
         <a href="canteen.html" class="px-4 py-2 rounded bg-[#3c5f51] hover:bg-[#476f5f] transition font-medium text-sm">← Admin Dashboard</a>
+        <button id="theme-toggle" type="button" onclick="toggleTheme()" class="px-3 py-2 rounded bg-[#3c5f51] hover:bg-[#476f5f] transition font-medium text-sm" aria-label="Switch to dark mode">🌙 Dark Mode</button>
     </header>
 
     <main class="max-w-6xl w-full mx-auto p-4 sm:p-6">
@@ -641,5 +741,24 @@
         else document.getElementById('payment-login').classList.remove('hidden');
         setInterval(removeExpiredClosedAccounts, 60 * 1000);
     </script>
+
+<script>
+function updateThemeButton() {
+    const button = document.getElementById('theme-toggle');
+    if (!button) return;
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    button.textContent = isDark ? '☀️ Light Mode' : '🌙 Dark Mode';
+    button.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
+    button.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+}
+function toggleTheme() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const nextTheme = isDark ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', nextTheme);
+    localStorage.setItem('mccafe-theme', nextTheme);
+    updateThemeButton();
+}
+document.addEventListener('DOMContentLoaded', updateThemeButton);
+</script>
 </body>
 </html>
