@@ -121,8 +121,9 @@ export async function handleDayPilotApi(req: VercelRequest, res: VercelResponse,
       const password = typeof body.password === 'string' ? body.password : ''
       const configured = (process.env.ADMIN_USERNAMES || '').split(',').map((x) => x.trim()).filter(Boolean)
       const allowed = [...new Set([...configured, 'Hamsath', 'Nihal'])]
-      if (!allowed.includes(username) || !(await adminPasswordOk(password))) { res.status(401).json({ error: 'Invalid admin credentials' }); return }
-      res.status(200).json({ token: signToken('admin', { username }, 8 * 60 * 60 * 1000), username })
+      const allowedUsername = allowed.find((candidate) => candidate.toLowerCase() === username.toLowerCase())
+      if (!allowedUsername || !(await adminPasswordOk(password))) { res.status(401).json({ error: 'Invalid admin credentials' }); return }
+      res.status(200).json({ token: signToken('admin', { username: allowedUsername }, 8 * 60 * 60 * 1000), username: allowedUsername })
       return
     }
 
