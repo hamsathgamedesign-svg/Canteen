@@ -1,6 +1,0 @@
-{
-  "framework": "vite",
-  "installCommand": "npm --prefix daypilot-app ci",
-  "buildCommand": "npm --prefix daypilot-app run build",
-  "outputDirectory": "daypilot-app/dist"
-}
