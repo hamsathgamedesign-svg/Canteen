@@ -56,6 +56,36 @@
         .app-content { position: relative; z-index: auto; }
         #reader { position: relative; z-index: 30; }
 
+        /* Keep the Add Grade controls inside the card at every screen size.
+           The action button gets its own row so it can never be squeezed
+           or clipped by the placement dropdown. */
+        .grade-form-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+            gap: 0.5rem;
+            width: 100%;
+        }
+        .grade-form-grid > input,
+        .grade-form-grid > select {
+            width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        .grade-form-grid > button {
+            grid-column: 1 / -1;
+            width: 100%;
+            min-height: 2.5rem;
+            box-sizing: border-box;
+        }
+        @media (max-width: 520px) {
+            .grade-form-grid {
+                grid-template-columns: 1fr;
+            }
+            .grade-form-grid > button {
+                grid-column: auto;
+            }
+        }
+
         .print-card {
             background: #ffffff;
             border: 4px solid #1e6b1a;
@@ -288,7 +318,7 @@
                     <p class="text-xs text-gray-500">Manage Classes, Divisions, Students, and Badges</p>
                 </div>
                 <div class="flex gap-2">
-                    <a href="payments.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Monthly Payments</a>
+                    <a href="payments.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Payments</a>
                     <a href="reports.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Reports</a>
                     <button onclick="adminLogout()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-200 transition">Log Out</button>
                 </div>
@@ -298,10 +328,14 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm">
                     <h3 class="text-sm font-bold text-matte-green mb-2">Add New Grade Level</h3>
-                    <div class="flex gap-2">
-                        <input type="text" id="new-grade-input" placeholder="e.g. Grade 11" class="border border-gray-300 p-2 rounded-lg text-sm flex-grow outline-none">
-                        <button onclick="addGrade()" class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Add Grade</button>
+                    <div class="grade-form-grid">
+                        <input type="text" id="new-grade-input" placeholder="e.g. Grade 11" class="border border-gray-300 p-2 rounded-lg text-sm outline-none">
+                        <select id="new-grade-placement" class="border border-gray-300 p-2 rounded-lg text-sm bg-white outline-none" aria-label="Choose where the new grade goes">
+                            <option value="smallest">Make this the smallest grade</option>
+                        </select>
+                        <button type="button" onclick="addGrade()" class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Add Grade</button>
                     </div>
+                    <p class="text-[11px] text-gray-500 mt-2">Pick the spot in the school order. For example, choose “Between UKG and Grade 1” to put a new grade in between them. You can also make it the smallest or biggest grade.</p>
                 </div>
                 <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm">
                     <h3 class="text-sm font-bold text-matte-green mb-2">Add New Division Group</h3>
@@ -411,7 +445,7 @@
 
     <script>
         // Data Store Initialization
-        let grades = JSON.parse(localStorage.getItem('ecocanteen_grades')) || ["Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10"];
+        let grades = JSON.parse(localStorage.getItem('ecocanteen_grades')) || ["LKG", "UKG", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10"];
         let divisions = JSON.parse(localStorage.getItem('ecocanteen_divisions')) || ["Hazel", "Maple", "Willow"];
         let students = JSON.parse(localStorage.getItem('ecocanteen_students')) || [];
         let teachers = JSON.parse(localStorage.getItem('ecocanteen_teachers')) || [];
@@ -516,7 +550,7 @@
                     clearTimeout(cloudTimeoutId);
                     const cloudData = snapshot.val();
                     if (cloudData) {
-                        grades = Array.isArray(cloudData.grades) ? cloudData.grades : grades;
+                        grades = normalizeGrades(Array.isArray(cloudData.grades) ? cloudData.grades : grades);
                         divisions = Array.isArray(cloudData.divisions) ? cloudData.divisions : divisions;
                         students = Array.isArray(cloudData.students) ? cloudData.students : students;
                         teachers = Array.isArray(cloudData.teachers) ? cloudData.teachers : teachers;
@@ -538,7 +572,7 @@
                     firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
                         if (!latestData) return;
-                        grades = Array.isArray(latestData.grades) ? latestData.grades : grades;
+                        grades = normalizeGrades(Array.isArray(latestData.grades) ? latestData.grades : grades);
                         divisions = Array.isArray(latestData.divisions) ? latestData.divisions : divisions;
                         students = Array.isArray(latestData.students) ? latestData.students : students;
                         teachers = Array.isArray(latestData.teachers) ? latestData.teachers : teachers;
@@ -836,14 +870,112 @@
             switchView('scanner');
         }
 
+        // Keep the early-school grades available and in the correct school order.
+        const DEFAULT_GRADES = [
+            'LKG', 'UKG',
+            'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5',
+            'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'
+        ];
+
+        function gradeSortValue(value) {
+            const raw = String(value || '').trim();
+            const upper = raw.toUpperCase();
+            if (upper === 'LKG' || upper.includes('LOWER KINDERGARTEN')) return 0;
+            if (upper === 'UKG' || upper.includes('UPPER KINDERGARTEN')) return 1;
+            const match = raw.match(/(\d+)/);
+            if (match) return 2 + Number(match[1]);
+            return 1000 + raw.toLowerCase().charCodeAt(0);
+        }
+
+        function normalizeGrades(list) {
+            const incoming = Array.isArray(list) ? list : [];
+            const result = [];
+            const seen = new Set();
+            incoming.forEach(g => {
+                const value = String(g || '').trim();
+                const key = value.toLowerCase();
+                if (value && !seen.has(key)) {
+                    seen.add(key);
+                    result.push(value);
+                }
+            });
+
+            // Always make LKG and UKG available. Insert them around Grade 1
+            // without disturbing the custom grade order chosen by the admin.
+            let lkgIndex = result.findIndex(g => g.toUpperCase() === 'LKG');
+            let ukgIndex = result.findIndex(g => g.toUpperCase() === 'UKG');
+            const firstGradeIndex = result.findIndex(g => /^GRADE\s*1$/i.test(g));
+            const insertionPoint = firstGradeIndex >= 0 ? firstGradeIndex : result.length;
+
+            if (lkgIndex < 0) {
+                result.splice(insertionPoint, 0, 'LKG');
+                lkgIndex = insertionPoint;
+            }
+
+            ukgIndex = result.findIndex(g => g.toUpperCase() === 'UKG');
+            if (ukgIndex < 0) {
+                const grade1Index = result.findIndex(g => /^GRADE\s*1$/i.test(g));
+                result.splice(grade1Index >= 0 ? grade1Index : lkgIndex + 1, 0, 'UKG');
+            }
+
+            // LKG must be before UKG, and UKG before Grade 1. If an old saved
+            // dataset had them in the wrong order, repair only those three.
+            const cleaned = result.filter(g => !['LKG', 'UKG'].includes(g.toUpperCase()));
+            const grade1Index = cleaned.findIndex(g => /^GRADE\s*1$/i.test(g));
+            const baseIndex = grade1Index >= 0 ? grade1Index : cleaned.length;
+            cleaned.splice(baseIndex, 0, 'LKG', 'UKG');
+            return cleaned;
+        }
+
+        grades = normalizeGrades(grades);
+
+        function rebuildGradePlacementOptions() {
+            const select = document.getElementById('new-grade-placement');
+            if (!select) return;
+            const current = select.value;
+            const items = [];
+            items.push({ value: 'smallest', label: 'Make this the smallest grade' });
+
+            for (let i = 0; i < grades.length - 1; i++) {
+                items.push({
+                    value: `between:${i}`,
+                    label: `Between ${grades[i]} and ${grades[i + 1]}`
+                });
+            }
+
+            items.push({ value: 'biggest', label: 'Make this the biggest grade' });
+            select.innerHTML = items.map(item =>
+                `<option value="${item.value}">${item.label}</option>`
+            ).join('');
+            if (items.some(item => item.value === current)) select.value = current;
+            else select.value = 'biggest';
+        }
+
         function addGrade() {
             if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const val = document.getElementById('new-grade-input').value.trim();
-            if (val && !grades.includes(val)) {
-                grades.push(val);
-                document.getElementById('new-grade-input').value = '';
-                saveAppData();
+            const placement = document.getElementById('new-grade-placement').value;
+            if (!val) { alert('Enter a grade name.'); return; }
+            if (grades.some(g => String(g).trim().toLowerCase() === val.toLowerCase())) {
+                alert(`${val} already exists.`);
+                return;
             }
+
+            let insertIndex = grades.length;
+            if (placement === 'smallest') {
+                insertIndex = 0;
+            } else if (placement === 'biggest') {
+                insertIndex = grades.length;
+            } else if (placement.startsWith('between:')) {
+                const leftIndex = Number(placement.split(':')[1]);
+                insertIndex = Number.isInteger(leftIndex) ? leftIndex + 1 : grades.length;
+            }
+
+            grades.splice(insertIndex, 0, val);
+            document.getElementById('new-grade-input').value = '';
+            document.getElementById('new-grade-placement').value = 'biggest';
+            saveAppData();
+            refreshUI();
         }
 
         function addDivision() {
@@ -1173,7 +1305,7 @@
             const syncBanner = document.getElementById('cloud-sync-banner');
             const stillLoading = isFirebaseConfigured() && !cloudDataReady;
             if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
-            ['reg-name', 'reg-grade', 'reg-division', 'reg-teacher-name', 'new-grade-input', 'new-div-input'].forEach(id => {
+            ['reg-name', 'reg-grade', 'reg-division', 'reg-teacher-name', 'new-grade-input', 'new-grade-placement', 'new-div-input'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.disabled = stillLoading;
             });
@@ -1182,6 +1314,7 @@
             // Populate Grade/Division Dropdowns
             document.getElementById('reg-grade').innerHTML = grades.map(g => `<option value="${g}">${g}</option>`).join('');
             document.getElementById('reg-division').innerHTML = divisions.map(d => `<option value="${d}">${d}</option>`).join('');
+            rebuildGradePlacementOptions();
 
             // Populate directories and printable ID cards
             const tableBody = document.getElementById('student-table-body');

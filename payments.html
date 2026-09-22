@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Monthly Canteen Payments | McLEOD's English School</title>
+    <title>Payments | McLEOD's English School</title>
     <link rel="icon" type="image/png" href="Not needed/McLeod's English School LOGO.png">
 <script>
 (function(){
@@ -153,7 +153,7 @@
         <section id="payment-app" class="hidden space-y-6">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white border border-[#d8e2dc] p-4 rounded-xl shadow-sm">
                 <div>
-                    <h2 class="text-lg font-bold text-matte-green">Monthly Canteen Payments</h2>
+                    <h2 class="text-lg font-bold text-matte-green">Payments</h2>
                     <p class="text-xs text-gray-500">Record parent payments and manage student canteen account eligibility.</p>
                 </div>
                 <button onclick="logout()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-200 transition">Log Out</button>
@@ -179,6 +179,20 @@
                     <button onclick="markPaymentAsPaid()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition sm:col-span-2 lg:col-span-1">Complete Payment</button>
                 </div>
                 <p id="daily-plan-help" class="hidden text-xs text-gray-600 bg-[#f5f8f6] border border-[#d8e2dc] rounded-lg p-3">Daily Meal Plan: ₹80 for exactly one meal on the selected date. The student may choose breakfast (Grades 1–2 only), lunch, mid morning, or mid evening — but only ONE meal can be claimed that day.</p>
+            </div>
+
+            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm space-y-4">
+                <div>
+                    <h3 class="text-md font-bold text-matte-green">📅 Quick Month Booking</h3>
+                    <p class="text-xs text-gray-500 mt-1">Book one school meal month for a student. The amount defaults to ₹100, but you can change it.</p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <select id="quick-book-student" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none"></select>
+                    <input id="quick-book-month" type="month" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
+                    <input id="quick-book-amount" type="number" min="0" step="1" value="100" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none" title="Amount paid in rupees">
+                    <input id="quick-book-date" type="date" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
+                    <button type="button" onclick="bookQuickMonth()" class="btn-matte p-2.5 rounded-lg text-sm font-semibold">Book Month</button>
+                </div>
             </div>
 
             <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm">
@@ -512,6 +526,83 @@
             return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
         }
 
+        function bookQuickMonth() {
+            try {
+                if (isFirebaseConfigured() && !cloudDataReady) {
+                    alert('Still loading the latest data from the cloud. Please wait a moment.');
+                    return;
+                }
+
+                const studentId = document.getElementById('quick-book-student').value;
+                const month = document.getElementById('quick-book-month').value;
+                const amount = Number(document.getElementById('quick-book-amount').value);
+                const date = document.getElementById('quick-book-date').value;
+                const student = students.find(item => item.id === studentId);
+
+                if (!student || !isStudentEnrolled(student)) { alert('Select an enrolled student.'); return; }
+                if (!month) { alert('Select the meal month to book.'); return; }
+                if (!Number.isFinite(amount) || amount < 0) { alert('Enter a valid non-negative amount.'); return; }
+                const paymentDateObj = parsePaymentDateInput(date);
+                if (!paymentDateObj) { alert('Pick a payment date.'); return; }
+
+                const paymentWindowToday = getPaymentWindow(new Date());
+                const paymentWindowDate = getPaymentWindow(paymentDateObj);
+                if (paymentWindowToday.mode === 'closed') {
+                    showSchoolYearPaymentPopup('Cannot do that. Payments are only entered during the school year (June to March), with April reserved for next school year fees. May is not a payment month.');
+                    return;
+                }
+                if (paymentWindowDate.mode === 'closed' || paymentWindowDate.mode !== paymentWindowToday.mode || paymentWindowDate.schoolYearStart !== paymentWindowToday.schoolYearStart) {
+                    showSchoolYearPaymentPopup("Cannot do that. The payment date must be within the currently allowed payment period. Next school year's fees can only be entered in April, and the school year itself runs from June to March.");
+                    return;
+                }
+                if (!paymentWindowDate.months.includes(month) || month < paymentWindowDate.minMonth || month > paymentWindowDate.maxMonth) {
+                    showSchoolYearPaymentPopup(`Cannot book ${formatMealMonth(month)}. Payments can only be recorded through March of the school year.`);
+                    return;
+                }
+                if (payments.some(payment => payment && payment.status === 'PAID' && String(payment.studentId) === String(student.id) && payment.mealMonth === month)) {
+                    showSchoolYearPaymentPopup(`${student.name} already has ${formatMealMonth(month)} booked.`);
+                    return;
+                }
+
+                const paymentId = `PAY-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+                const paymentDate = formatDisplayDate(paymentDateObj);
+                let expiresAt;
+                if (Number(month.slice(5)) === 3) {
+                    expiresAt = new Date(Number(month.slice(0, 4)), 3, 1, 0, 0, 0, 0).getTime();
+                } else {
+                    const [targetYear, targetMonth] = month.split('-').map(Number);
+                    const expiryMonthDate = new Date(targetYear, targetMonth, 1);
+                    const daysInExpiryMonth = new Date(expiryMonthDate.getFullYear(), expiryMonthDate.getMonth() + 1, 0).getDate();
+                    const expiryDay = Math.min(paymentDateObj.getDate(), daysInExpiryMonth);
+                    expiresAt = new Date(expiryMonthDate.getFullYear(), expiryMonthDate.getMonth(), expiryDay, 0, 0, 0, 0).getTime();
+                }
+
+                const record = {
+                    id: paymentId,
+                    studentId: student.id,
+                    studentName: student.name,
+                    mealMonth: month,
+                    amount,
+                    paymentDate,
+                    expiresAt,
+                    recordedAt: new Date().toLocaleString(),
+                    status: 'PAID',
+                    source: 'payments-quick-booking'
+                };
+                student.paymentPaused = false;
+                payments.unshift(record);
+                pendingPaymentIds.add(paymentId);
+                savePendingPaymentIds();
+                persist();
+                document.getElementById('quick-book-month').value = '';
+                document.getElementById('quick-book-date').value = '';
+                alert(`Booked ${formatMealMonth(month)} for ${student.name} — ₹${amount}.`);
+            } catch (error) {
+                console.error('bookQuickMonth failed:', error);
+                alert('Something went wrong booking this month: ' + (error && error.message ? error.message : error));
+            }
+        }
+
         function markPaymentAsPaid() {
           try {
             // Payment completion must never be blocked by Firebase latency. Validate the
@@ -675,6 +766,15 @@
             if (completeBtn) { completeBtn.disabled = false; completeBtn.classList.remove('opacity-50', 'cursor-not-allowed'); }
 
             const select = document.getElementById('payment-student');
+            const quickBookStudent = document.getElementById('quick-book-student');
+            const previousQuickStudent = quickBookStudent ? quickBookStudent.value : '';
+            if (quickBookStudent) {
+                quickBookStudent.innerHTML = students.filter(isStudentEnrolled).map(student => `<option value="${student.id}">${student.name} (${student.id})</option>`).join('') || '<option value="">No enrolled students available</option>';
+                if (students.some(student => student.id === previousQuickStudent && isStudentEnrolled(student))) quickBookStudent.value = previousQuickStudent;
+            }
+            const quickBookDate = document.getElementById('quick-book-date');
+            if (quickBookDate && !quickBookDate.value) quickBookDate.value = new Date().toISOString().slice(0, 10);
+            const quickBookMonth = document.getElementById('quick-book-month');
             const previousSelection = select.value;
             const enrolledStudents = students.filter(isStudentEnrolled);
             select.innerHTML = enrolledStudents.length ? enrolledStudents.map(student => `<option value="${student.id}">${student.name} (${student.id})</option>`).join('') : '<option value="">No enrolled students available</option>';
@@ -692,6 +792,7 @@
                 document.getElementById('payment-date').max = new Date().toISOString().slice(0, 10);
                 if (!mealMonthInput.value || mealMonthInput.value < paymentWindow.minMonth || mealMonthInput.value > paymentWindow.maxMonth) mealMonthInput.value = getUpcomingMonthKey();
             }
+            if (quickBookMonth && !quickBookMonth.value && paymentWindow.mode !== 'closed') quickBookMonth.value = getUpcomingMonthKey();
             const monthCountInput = document.getElementById('payment-month-count');
             if (monthCountInput) {
                 const selectedStart = mealMonthInput.value;

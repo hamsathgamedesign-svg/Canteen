@@ -1,13 +1,1524 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>daypilot-app</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>McCafe Monitor</title>
+    <link rel="icon" type="image/png" href="Not needed/McLeod's English School LOGO.png">
+<script>
+(function(){
+    const savedTheme = localStorage.getItem('mccafe-theme');
+    document.documentElement.setAttribute('data-theme', savedTheme === 'dark' ? 'dark' : 'light');
+})();
+</script>
+        <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
+    <style>
+        body { background-color: #f4f6f0; color: #2d3732; }
+        .bg-matte-green { background-color: #2d4a3e; }
+        .text-matte-green { color: #2d4a3e; }
+        .border-matte-green { border-color: #2d4a3e; }
+        .btn-matte { background-color: #2d4a3e; color: #f4f6f0; }
+        .btn-matte:hover { background-color: #243c32; }
+        #dashboard-nav-button { background-color: #3c5f51; color: #f4f6f0; }
+        #dashboard-nav-button.admin-login-subtle { background-color: #2d4a3e; color: #476f5f; opacity: 0.15; }
+        .header-school-logo { width: 2.25rem; height: 2.25rem; background-color: #f4f6f0; mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; -webkit-mask: url("Not needed/McLeod's English School LOGO.png") center / contain no-repeat; }
+
+        /* The scan-result popup: a floating card pinned near the top of the viewport so
+           it's always visible immediately after a scan, regardless of scroll position
+           or how tall the camera preview is. showScanPopup()/hideScanFeedback() build
+           its contents and control visibility/auto-dismiss - see the JS below. */
+        #scan-feedback { position: fixed; top: 5.5rem; left: 50%; transform: translateX(-50%); z-index: 60; width: min(92vw, 22rem); background: #fff; border-radius: 1rem; box-shadow: 0 12px 30px rgba(0,0,0,0.22); padding: 2rem 1.25rem 1.25rem; text-align: center; }
+        .scan-popup-close { position: absolute; top: 0.5rem; right: 0.85rem; font-size: 1.75rem; line-height: 1; background: none; border: none; color: #9ca3af; cursor: pointer; padding: 0; }
+        .scan-popup-close:hover { color: #4b5563; }
+        .scan-popup-emoji { font-size: 3rem; line-height: 1; margin-bottom: 0.5rem; }
+        .scan-popup-heading { font-size: 1.35rem; font-weight: 800; letter-spacing: 0.03em; margin-bottom: 0.5rem; }
+        .scan-popup-reason { font-size: 0.9rem; color: #4b5563; margin-bottom: 1.25rem; line-height: 1.4; }
+        .scan-popup-ok { width: 100%; padding: 0.6rem; border-radius: 0.6rem; font-weight: 700; font-size: 0.9rem; border: none; cursor: pointer; }
+
+        /* School logo watermark: a faint, fixed background image behind all page
+           content. pointer-events: none so it never intercepts clicks, and header/
+           main are lifted onto their own stacking layer (z-index: 1) so real content
+           always renders above it. */
+        .school-watermark { position: fixed; inset: 0; background: url("Not needed/McLeod's English School LOGO.png") center / min(85vw, 680px) no-repeat; opacity: 0.22; filter: brightness(1) saturate(1.05); pointer-events: none; z-index: 0; }
+        /* Keep the watermark faint, but make the logo about 60% brighter in dark mode so it is still visible. */
+        html[data-theme="dark"] .school-watermark { opacity: 0.22; filter: brightness(1.6) saturate(1.08); }
+        /* Everything the person actually looks at (header, scanner, dashboard, popup)
+           lives inside this single wrapper, which is explicitly lifted onto its own
+           stacking layer above the watermark. Using one wrapper - instead of trying to
+           position header and main separately - removes any ambiguity about ordering:
+           this whole layer (z-index: 1) always paints above the watermark (z-index: 0),
+           and everything inside it (including the camera at z-index: 2 and the scan
+           popup at z-index: 60) stacks correctly relative to each other within it. */
+        .app-content { position: relative; z-index: auto; }
+        #reader { position: relative; z-index: 30; }
+
+        /* Keep the Add Grade controls inside the card at every screen size.
+           The action button gets its own row so it can never be squeezed
+           or clipped by the placement dropdown. */
+        .grade-form-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+            gap: 0.5rem;
+            width: 100%;
+        }
+        .grade-form-grid > input,
+        .grade-form-grid > select {
+            width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+        }
+        .grade-form-grid > button {
+            grid-column: 1 / -1;
+            width: 100%;
+            min-height: 2.5rem;
+            box-sizing: border-box;
+        }
+        @media (max-width: 520px) {
+            .grade-form-grid {
+                grid-template-columns: 1fr;
+            }
+            .grade-form-grid > button {
+                grid-column: auto;
+            }
+        }
+
+        .print-card {
+            background: #ffffff;
+            border: 4px solid #1e6b1a;
+            border-radius: 2px;
+            color: #1f2937;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            min-height: 350px;
+            padding: 18px;
+        }
+        .badge-person-row { display: flex; align-items: center; gap: 18px; }
+        .badge-qr { flex: 0 0 112px; min-height: 112px; display: flex; align-items: center; justify-content: center; }
+        .badge-person-details { font-size: 14px; line-height: 1.45; }
+        .badge-person-details strong { color: #2d4a3e; }
+        .badge-brand-row { display: flex; align-items: center; gap: 18px; margin-top: 4px; }
+        .badge-logo { width: 76px; height: 76px; object-fit: contain; }
+        .badge-title { color: #1f2937; font-size: 23px; font-weight: 700; }
+        .badge-footer { font-size: 14px; line-height: 1.35; margin-top: auto; padding-left: 4px; }
+        .badge-id { color: #4b5563; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; text-align: right; }
+        
+        @media print {
+            body * { visibility: hidden; }
+            #printable-area, #printable-area * { visibility: visible; }
+            #printable-area { position: absolute; left: 0; top: 0; width: 100%; display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; padding: 20px; }
+            .print-card { box-sizing: border-box; min-height: 54mm; padding: 4mm; page-break-inside: avoid; width: 85mm; }
+            .badge-person-row { gap: 4mm; }
+            .badge-qr { flex-basis: 28mm; min-height: 28mm; }
+            .badge-qr img { width: 28mm !important; height: 28mm !important; }
+            .badge-person-details { font-size: 10pt; }
+            .badge-brand-row { gap: 5mm; }
+            .badge-logo { width: 18mm; height: 18mm; }
+            .badge-title { font-size: 16pt; }
+            .badge-footer { font-size: 10pt; }
+        }
+
+        /* Persistent light/dark mode */
+        :root {
+            --theme-bg: #f4f6f0;
+            --theme-text: #2d3732;
+            --theme-card: #ffffff;
+            --theme-border: #d8e2dc;
+            --theme-muted: #6b7280;
+            --theme-input: #ffffff;
+            --theme-input-border: #d1d5db;
+            --theme-soft: #eef3ee;
+            --theme-shadow: rgba(0,0,0,0.08);
+        }
+        html[data-theme="dark"] {
+            --theme-bg: #121815;
+            --theme-text: #e8eee9;
+            --theme-card: #1b2420;
+            --theme-border: #34423b;
+            --theme-muted: #aab7b0;
+            --theme-input: #151c19;
+            --theme-input-border: #46564e;
+            --theme-soft: #24312b;
+            --theme-shadow: rgba(0,0,0,0.35);
+        }
+        html[data-theme="dark"] body { background-color: var(--theme-bg) !important; color: var(--theme-text) !important; }
+        html[data-theme="dark"] .bg-white { background-color: var(--theme-card) !important; }
+        html[data-theme="dark"] .bg-gray-50 { background-color: #202a25 !important; }
+        html[data-theme="dark"] .bg-gray-100 { background-color: #26322c !important; }
+        html[data-theme="dark"] .bg-green-50 { background-color: #193024 !important; }
+        html[data-theme="dark"] .bg-red-50 { background-color: #351f21 !important; }
+        html[data-theme="dark"] .bg-yellow-50 { background-color: #342f1d !important; }
+        html[data-theme="dark"] .bg-amber-50 { background-color: #352c1b !important; }
+        html[data-theme="dark"] .bg-blue-50 { background-color: #1d2b39 !important; }
+        html[data-theme="dark"] .text-gray-500,
+        html[data-theme="dark"] .text-gray-600,
+        html[data-theme="dark"] .text-gray-700 { color: var(--theme-muted) !important; }
+        html[data-theme="dark"] .text-gray-800,
+        html[data-theme="dark"] .text-gray-900 { color: var(--theme-text) !important; }
+        html[data-theme="dark"] [class*="border-gray-"],
+        html[data-theme="dark"] [class*="border-[#d8e2dc]"] { border-color: var(--theme-border) !important; }
+        html[data-theme="dark"] input,
+        html[data-theme="dark"] select,
+        html[data-theme="dark"] textarea { background-color: var(--theme-input) !important; color: var(--theme-text) !important; border-color: var(--theme-input-border) !important; }
+        html[data-theme="dark"] input::placeholder,
+        html[data-theme="dark"] textarea::placeholder { color: #819087 !important; }
+        html[data-theme="dark"] table { color: var(--theme-text); }
+        html[data-theme="dark"] th { background-color: var(--theme-soft) !important; color: var(--theme-text) !important; }
+        html[data-theme="dark"] td { border-color: var(--theme-border) !important; }
+        html[data-theme="dark"] .shadow-sm,
+        html[data-theme="dark"] .shadow-md,
+        html[data-theme="dark"] .shadow-lg,
+        html[data-theme="dark"] .shadow-xl { box-shadow: 0 8px 24px var(--theme-shadow) !important; }
+        html[data-theme="dark"] #scan-feedback { background: #1b2420; color: var(--theme-text); }
+        html[data-theme="dark"] .scan-popup-reason { color: #b8c3bd; }
+        html[data-theme="dark"] .scan-popup-close { color: #aab7b0; }
+        html[data-theme="dark"] .scan-popup-close:hover { color: #ffffff; }
+        /* Canteen ID cards follow the selected dashboard theme on screen.
+           The print-only rules below switch them back to a clean light card. */
+        html[data-theme="dark"] .print-card {
+            background: var(--theme-card) !important;
+            color: var(--theme-text) !important;
+            border-color: #2f7d2a !important;
+        }
+        html[data-theme="dark"] .badge-person-details strong { color: #9ed7bd !important; }
+        html[data-theme="dark"] .badge-title { color: var(--theme-text) !important; }
+        html[data-theme="dark"] .badge-footer { color: var(--theme-text) !important; }
+        html[data-theme="dark"] .badge-id { color: var(--theme-muted) !important; }
+        #theme-toggle { white-space: nowrap; }
+        /* Keep QR codes normal black-and-white. In dark mode only their backing is brightened
+           so the existing black QR modules remain easy to scan; nothing is recolored or made transparent. */
+        html[data-theme="dark"] .badge-qr,
+        html[data-theme="dark"] [id^="directory-student-qr-"],
+        html[data-theme="dark"] [id^="directory-teacher-qr-"] {
+            background: #ffffff !important;
+            border-radius: 4px;
+            padding: 3px;
+        }
+
+    
+/* Always use the normal light appearance when printing */
+@media print {
+  html[data-theme="dark"], html[data-theme="dark"] body { background: #fff !important; color: #000 !important; }
+  #printable-area, #printable-area * {
+    --theme-bg: #f4f6f0 !important;
+    --theme-text: #2d3732 !important;
+    --theme-card: #fff !important;
+    --theme-border: #d8e2dc !important;
+    --theme-muted: #6b7280 !important;
+    --theme-input: #fff !important;
+    --theme-input-border: #d1d5db !important;
+    --theme-soft: #eef3ee !important;
+    --theme-shadow: rgba(0,0,0,.08) !important;
+  }
+  #printable-area, #printable-area * { background-color: #fff !important; color: #000 !important; }
+  #printable-area .print-card { background: #fff !important; color: #000 !important; border-color: #d8e2dc !important; box-shadow: none !important; }
+}
+.app-content { position: relative; z-index: 1; }
+#reader { position: relative; z-index: 30; }
+#scan-feedback { position: fixed; z-index: 60; }
+</style>
+</head>
+<body class="min-h-screen flex flex-col">
+    <div class="school-watermark" aria-hidden="true"></div>
+
+    <!-- Header Navigation -->
+    <div class="app-content flex flex-col flex-grow">
+    <header class="bg-matte-green text-[#f4f6f0] shadow-md p-4 flex justify-between items-center">
+        <div class="flex items-center gap-2">
+            <span role="img" aria-label="McLEOD's English School logo" class="header-school-logo"></span>
+            <h1 class="text-xl font-bold tracking-wide">McCafe Monitor</h1>
+        </div>
+        <div id="navigation-controls" class="space-x-2">
+            <button id="scanner-nav-button" onclick="switchView('scanner')" class="hidden px-4 py-2 rounded bg-[#3c5f51] hover:bg-[#476f5f] transition font-medium text-sm">Scanning Mode</button>
+            <button id="dashboard-nav-button" onclick="checkAdminAccess()" title="Admin Login" aria-label="Admin Login" class="px-4 py-2 rounded transition font-medium text-sm admin-login-subtle">Admin Login</button>
+<button id="theme-toggle" type="button" onclick="toggleTheme()" class="px-3 py-2 rounded bg-[#3c5f51] hover:bg-[#476f5f] transition font-medium text-sm" aria-label="Switch to dark mode">🌙 Dark Mode</button>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-5xl w-full mx-auto p-4 sm:p-6">
+
+        <!---------------- VIEW 1: CANTEEN CAMERA & MANUAL SCANNER ---------------->
+        <div id="view-scanner" class="space-y-6">
+            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm max-w-xl mx-auto">
+                <h2 class="text-xl font-bold text-matte-green mb-4">Canteen Terminal Scanner</h2>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold mb-1">Select Meal Category:</label>
+                    <select id="active-meal-category" class="w-full border border-gray-300 rounded-lg p-2.5 bg-[#f4f6f0] font-medium outline-none">
+                        <option value="Breakfast">Breakfast</option>
+                        <option value="Mid-Morning">Mid-Morning</option>
+                        <option value="Lunch">Lunch</option>
+                        <option value="Mid-Evening">Mid-Evening</option>
+                        <option value="Dinner">Dinner</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Breakfast is only available for Grade 1 and Grade 2 students.</p>
+                </div>
+
+                <!-- Live Camera Feed Container -->
+                <div class="mb-4">
+                    <label class="block text-sm font-semibold mb-1">Scan QR via Camera:</label>
+                    <div id="reader" class="w-full rounded-lg overflow-hidden border border-gray-300 bg-black"></div>
+                    <button id="camera-switch-btn" onclick="switchCamera()" class="hidden mt-2 w-full text-xs font-semibold bg-[#d8e2dc] text-[#2d4a3e] px-3 py-2 rounded-lg hover:bg-[#c6d5cd] transition">🔄 Use Back Camera</button>
+                </div>
+
+                <!-- Fallback Manual ID Input -->
+                <div class="mt-4 pt-4 border-t border-gray-200">
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Camera not working? Enter ID manually:</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="manual-id-input" placeholder="e.g. ECO-584920" class="flex-grow border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
+                        <button onclick="processManualScan()" class="btn-matte px-4 py-2 rounded-lg text-sm font-semibold transition">Submit ID</button>
+                    </div>
+                </div>
+
+                <!-- Scan Status Feedback Box -->
+                <div id="scan-feedback" class="hidden"></div>
+            </div>
+
+        </div>
+
+        <!---------------- VIEW 2: ADMIN LOGIN ---------------->
+        <div id="view-admin-login" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
+            <h2 class="text-xl font-bold text-matte-green mb-2">Admin Portal Login</h2>
+            <p class="text-xs text-gray-500 mb-6">Two security layers protect access to student and teacher records.</p>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">Username</label>
+                    <input type="text" id="admin-user" onkeydown="if (event.key === 'Enter') processAdminLogin();" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="admin">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Password</label>
+                    <input type="password" id="admin-pass" onkeydown="if (event.key === 'Enter') processAdminLogin();" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="••••••••">
+                </div>
+                <button onclick="processAdminLogin()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Login</button>
+            </div>
+        </div>
+
+        <!---------------- VIEW 2b: ADMIN LOGIN, SECOND SECURITY LAYER ---------------->
+        <div id="view-admin-login-layer2" class="hidden max-w-md mx-auto bg-white border border-[#d8e2dc] p-8 rounded-2xl shadow-sm mt-10">
+            <h2 class="text-xl font-bold text-matte-green mb-2">Second Security Layer</h2>
+            <p class="text-xs text-gray-500 mb-6">Enter the security phrase to protect student and teacher records.</p>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">Security phrase</label>
+                    <input type="password" id="admin-security-phrase" onkeydown="if (event.key === 'Enter') processSecurityLayer2();" class="w-full border border-gray-300 rounded-lg p-2.5 outline-none" placeholder="••••••••">
+                </div>
+                <button onclick="processSecurityLayer2()" class="w-full btn-matte font-bold p-3 rounded-lg transition">Unlock Admin Dashboard</button>
+            </div>
+        </div>
+
+        <!---------------- VIEW 3: ADMIN DASHBOARD ---------------->
+        <div id="view-admin-dashboard" class="hidden space-y-6">
+            <div class="flex justify-between items-center bg-white border border-[#d8e2dc] p-4 rounded-xl shadow-sm">
+                <div>
+                    <h2 class="text-lg font-bold text-matte-green">Admin Dashboard</h2>
+                    <p class="text-xs text-gray-500">Manage Classes, Divisions, Students, and Badges</p>
+                </div>
+                <div class="flex gap-2">
+                    <a href="payments.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Payments</a>
+                    <a href="reports.html" class="text-xs bg-[#d8e2dc] text-[#2d4a3e] px-3 py-1.5 rounded-lg font-semibold hover:bg-[#c6d5cd] transition">Reports</a>
+                    <button onclick="adminLogout()" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-semibold hover:bg-red-200 transition">Log Out</button>
+                </div>
+            </div>
+
+            <!-- Configuration: Add Grades & Divisions -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm">
+                    <h3 class="text-sm font-bold text-matte-green mb-2">Add New Grade Level</h3>
+                    <div class="grade-form-grid">
+                        <input type="text" id="new-grade-input" placeholder="e.g. Grade 11" class="border border-gray-300 p-2 rounded-lg text-sm outline-none">
+                        <select id="new-grade-placement" class="border border-gray-300 p-2 rounded-lg text-sm bg-white outline-none" aria-label="Choose where the new grade goes">
+                            <option value="smallest">Make this the smallest grade</option>
+                        </select>
+                        <button type="button" onclick="addGrade()" class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Add Grade</button>
+                    </div>
+                    <p class="text-[11px] text-gray-500 mt-2">Pick the spot in the school order. For example, choose “Between UKG and Grade 1” to put a new grade in between them. You can also make it the smallest or biggest grade.</p>
+                </div>
+                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm">
+                    <h3 class="text-sm font-bold text-matte-green mb-2">Add New Division Group</h3>
+                    <div class="flex gap-2">
+                        <input type="text" id="new-div-input" placeholder="e.g. Oak" class="border border-gray-300 p-2 rounded-lg text-sm flex-grow outline-none">
+                        <button onclick="addDivision()" class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Add Division</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Registration Forms -->
+            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm space-y-6">
+                <p id="cloud-sync-banner" class="hidden text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">⏳ Loading the latest data from the cloud - please wait a moment before adding students, teachers, or classes.</p>
+                <div>
+                    <h3 class="text-md font-bold text-matte-green mb-3">Register New Student</h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <input type="text" id="reg-name" placeholder="Full Name" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
+                        <select id="reg-grade" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none font-medium"></select>
+                        <select id="reg-division" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none font-medium"></select>
+                        <button onclick="registerStudent()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition">Add Student</button>
+                    </div>
+                </div>
+                <div class="pt-5 border-t border-gray-200">
+                    <h3 class="text-md font-bold text-matte-green mb-3">Register New Teacher</h3>
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <input type="text" id="reg-teacher-name" placeholder="Teacher's Full Name" class="border border-gray-300 p-2.5 rounded-lg text-sm flex-grow outline-none">
+                        <button onclick="registerTeacher()" class="btn-matte font-semibold px-5 py-2.5 rounded-lg text-sm transition">Add Teacher</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Student Directory & Print Option -->
+            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-md font-bold text-matte-green">Directories & Badge Printing</h3>
+                    <div class="flex items-center gap-2">
+                        <select id="badge-print-filter" onchange="refreshUI()" class="border border-gray-300 rounded-lg px-2 py-1.5 text-xs bg-white">
+                            <option value="students">Student IDs</option>
+                            <option value="teachers">Teacher IDs</option>
+                            <option value="all">All IDs</option>
+                        </select>
+                        <button onclick="window.print()" class="bg-gray-100 border border-gray-300 text-gray-700 text-xs px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-200 transition">🖨️ Print Selected</button>
+                    </div>
+                </div>
+                
+                <!-- Printable ID Card Grid Format -->
+                <div id="printable-area">
+                    <div id="printable-cards-container" class="contents"></div>
+                </div>
+
+                <!-- Interactive Directory Table -->
+                <div class="overflow-x-auto mt-4 pt-4 border-t border-gray-200">
+                    <h3 class="text-md font-bold text-matte-green mb-3">Student Directory</h3>
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600">
+                                <th class="p-3">QR</th>
+                                <th class="p-3">Name</th>
+                                <th class="p-3">Grade</th>
+                                <th class="p-3">Division</th>
+                                <th class="p-3">ID Code</th>
+                                <th class="p-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="student-table-body" class="text-sm"></tbody>
+                    </table>
+                </div>
+                <div class="overflow-x-auto mt-6 pt-4 border-t border-gray-200">
+                    <h3 class="text-md font-bold text-matte-green mb-3">Teacher Directory</h3>
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600">
+                                <th class="p-3">QR</th>
+                                <th class="p-3">Name</th>
+                                <th class="p-3">Teacher ID</th>
+                                <th class="p-3">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="teacher-table-body" class="text-sm"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Organized Logs & History -->
+            <div class="bg-white border border-[#d8e2dc] p-6 rounded-2xl shadow-sm">
+                <h3 class="text-md font-bold text-matte-green mb-4">Scan History Logs</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-gray-200 bg-[#f4f6f0] text-xs font-bold text-gray-600">
+                                <th class="p-3">Time</th>
+                                <th class="p-3">Student Name</th>
+                                <th class="p-3">Class Group</th>
+                                <th class="p-3">Category</th>
+                                <th class="p-3">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="logs-table-body" class="text-sm"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+    </div>
+
+    <script>
+        // Data Store Initialization
+        let grades = JSON.parse(localStorage.getItem('ecocanteen_grades')) || ["LKG", "UKG", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10"];
+        let divisions = JSON.parse(localStorage.getItem('ecocanteen_divisions')) || ["Hazel", "Maple", "Willow"];
+        let students = JSON.parse(localStorage.getItem('ecocanteen_students')) || [];
+        let teachers = JSON.parse(localStorage.getItem('ecocanteen_teachers')) || [];
+        let payments = JSON.parse(localStorage.getItem('ecocanteen_payments')) || [];
+        let paymentDeadlineDay = Number(localStorage.getItem('ecocanteen_payment_deadline_day')) || 25;
+        let dailyTracker = JSON.parse(localStorage.getItem('ecocanteen_tracker')) || {};
+        let dailyTrackerDate = localStorage.getItem('ecocanteen_tracker_date') || '';
+        let monthlyResetMonth = localStorage.getItem('ecocanteen_monthly_reset_month') || '';
+        let scanLogs = JSON.parse(localStorage.getItem('ecocanteen_logs')) || [];
+        let badgePrintIndividual = null;
+        let isAdminLoggedIn = sessionStorage.getItem('ecocanteen_admin_session') === 'true';
+        // Decides which view to land on once the initial cloud data load finishes.
+        // A visitor with an active admin session (e.g. arriving via the "Admin
+        // Dashboard" link from Payments/Reports) should land on the dashboard, not
+        // get bounced into the public scanner - loadCloudData() uses this instead of
+        // hardcoding 'scanner' so a logged-in admin's session is actually respected.
+        function initialViewAfterLoad() {
+            return isAdminLoggedIn ? 'dashboard' : 'scanner';
+        }
+        let currentAdminName = sessionStorage.getItem('ecocanteen_admin_name') || '';
+        let pendingAdminUsername = ''; // holds the username between login layer 1 and layer 2
+        let html5QrCode = null;
+        let firebaseDatabase = null;
+        let scanLocked = false;
+        let currentView = 'scanner';
+        // Becomes true once we've confirmed what's actually in the cloud database.
+        // Registering people or recording anything BEFORE this is true is dangerous:
+        // this device's localStorage can hold old/stale data (e.g. long-ago test
+        // students or payments), and every save pushes the ENTIRE local copy back
+        // up to Firebase. Writing too early silently resurrects that stale data
+        // and overwrites whatever is really in the cloud. See addStudent/addTeacher.
+        let cloudDataReady = false;
+
+        function addScanLog(entry) { scanLogs.unshift({ ...entry, occurredAt: new Date().toISOString() }); }
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyD9qr8eJ1jzU-mC49-UPuYf8fO1LTV6QVY",
+            authDomain: "canteen-28c1e.firebaseapp.com",
+            databaseURL: "https://canteen-28c1e-default-rtdb.firebaseio.com",
+            projectId: "canteen-28c1e",
+            storageBucket: "canteen-28c1e.firebasestorage.app",
+            messagingSenderId: "849945519532",
+            appId: "1:849945519532:web:fd012de87be618cf324609",
+            measurementId: "G-FYR72EMJRP"
+        };
+
+        function isFirebaseConfigured() {
+            return firebaseConfig.apiKey && firebaseConfig.databaseURL;
+        }
+
+        function syncCloudData() {
+            if (!firebaseDatabase) return;
+            if (!cloudDataReady) {
+                // Refuse to write until we know what's actually in the cloud.
+                // Writing early would push this device's possibly-stale local
+                // copy over the top of the real cloud data.
+                console.warn('Skipped cloud sync: still waiting for the initial load from Firebase.');
+                return;
+            }
+
+            firebaseDatabase.ref('mcleods-canteen').update({
+                grades,
+                divisions,
+                students,
+                teachers,
+                payments,
+                paymentDeadlineDay,
+                dailyTracker,
+                dailyTrackerDate,
+                monthlyResetMonth,
+                scanLogs,
+                updatedAt: new Date().toISOString()
+            }).catch(error => console.error('Firebase sync failed:', error));
+        }
+
+        function loadCloudData() {
+            if (!isFirebaseConfigured()) {
+                console.info('Firebase is not configured. Using this browser\'s local storage.');
+                cloudDataReady = true;
+                refreshUI();
+                switchView(initialViewAfterLoad());
+                return;
+            }
+
+            try {
+                firebase.initializeApp(firebaseConfig);
+                firebaseDatabase = firebase.database();
+                // Safety net: if Firebase never responds (blocked by a network filter,
+                // no internet, connection drops mid-request, etc.), cloudDataReady must
+                // not stay false forever - that would leave registration/payment
+                // actions disabled indefinitely with no clear explanation. After 8
+                // seconds with no response, proceed using local data instead.
+                const cloudTimeoutId = setTimeout(() => {
+                    if (!cloudDataReady) {
+                        console.warn('Firebase did not respond in time - continuing with local data.');
+                        cloudDataReady = true;
+                        refreshUI();
+                        switchView(initialViewAfterLoad());
+                    }
+                }, 8000);
+                firebaseDatabase.ref('mcleods-canteen').once('value').then(snapshot => {
+                    clearTimeout(cloudTimeoutId);
+                    const cloudData = snapshot.val();
+                    if (cloudData) {
+                        grades = normalizeGrades(Array.isArray(cloudData.grades) ? cloudData.grades : grades);
+                        divisions = Array.isArray(cloudData.divisions) ? cloudData.divisions : divisions;
+                        students = Array.isArray(cloudData.students) ? cloudData.students : students;
+                        teachers = Array.isArray(cloudData.teachers) ? cloudData.teachers : teachers;
+                        payments = Array.isArray(cloudData.payments) ? cloudData.payments : payments;
+                        paymentDeadlineDay = Number(cloudData.paymentDeadlineDay) || paymentDeadlineDay;
+                        dailyTracker = cloudData.dailyTracker || {};
+                        dailyTrackerDate = cloudData.dailyTrackerDate || dailyTrackerDate;
+                        monthlyResetMonth = cloudData.monthlyResetMonth || monthlyResetMonth;
+                        scanLogs = Array.isArray(cloudData.scanLogs) ? cloudData.scanLogs : [];
+                        cloudDataReady = true;
+                    } else {
+                        // Nothing in the cloud yet - it's safe to seed it from local data.
+                        cloudDataReady = true;
+                        syncCloudData();
+                    }
+                    runAutomaticResets();
+                    refreshUI();
+                    switchView(initialViewAfterLoad());
+                    firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
+                        const latestData = latestSnapshot.val();
+                        if (!latestData) return;
+                        grades = normalizeGrades(Array.isArray(latestData.grades) ? latestData.grades : grades);
+                        divisions = Array.isArray(latestData.divisions) ? latestData.divisions : divisions;
+                        students = Array.isArray(latestData.students) ? latestData.students : students;
+                        teachers = Array.isArray(latestData.teachers) ? latestData.teachers : teachers;
+                        payments = Array.isArray(latestData.payments) ? latestData.payments : payments;
+                        paymentDeadlineDay = Number(latestData.paymentDeadlineDay) || paymentDeadlineDay;
+                        dailyTracker = latestData.dailyTracker || dailyTracker;
+                        dailyTrackerDate = latestData.dailyTrackerDate || dailyTrackerDate;
+                        monthlyResetMonth = latestData.monthlyResetMonth || monthlyResetMonth;
+                        scanLogs = Array.isArray(latestData.scanLogs) ? latestData.scanLogs : scanLogs;
+                        runAutomaticResets();
+                        refreshUI();
+                    });
+                }).catch(error => {
+                    clearTimeout(cloudTimeoutId);
+                    console.error('Firebase loading failed:', error);
+                    // We couldn't confirm the cloud state, so treat this device's
+                    // local copy as the only source of truth for now rather than
+                    // silently blocking every save.
+                    cloudDataReady = true;
+                    refreshUI();
+                    switchView(initialViewAfterLoad());
+                });
+            } catch (error) {
+                console.error('Firebase setup failed:', error);
+                cloudDataReady = true;
+                refreshUI();
+                switchView(initialViewAfterLoad());
+            }
+        }
+
+        function saveAppData() {
+            localStorage.setItem('ecocanteen_grades', JSON.stringify(grades));
+            localStorage.setItem('ecocanteen_divisions', JSON.stringify(divisions));
+            localStorage.setItem('ecocanteen_students', JSON.stringify(students));
+            localStorage.setItem('ecocanteen_teachers', JSON.stringify(teachers));
+            localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
+            localStorage.setItem('ecocanteen_payment_deadline_day', String(paymentDeadlineDay));
+            localStorage.setItem('ecocanteen_tracker', JSON.stringify(dailyTracker));
+            localStorage.setItem('ecocanteen_tracker_date', dailyTrackerDate);
+            localStorage.setItem('ecocanteen_monthly_reset_month', monthlyResetMonth);
+            localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs));
+            refreshUI();
+            syncCloudData();
+        }
+
+        function getMonthKey(date = new Date()) {
+            return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        }
+
+        function getDayKey(date = new Date()) {
+            return `${getMonthKey(date)}-${String(date.getDate()).padStart(2, '0')}`;
+        }
+
+        function runAutomaticResets() {
+            removeExpiredClosedAccounts();
+            const today = getDayKey();
+            const thisMonth = getMonthKey();
+            let dataChanged = false;
+
+            if (monthlyResetMonth !== thisMonth) {
+                monthlyResetMonth = thisMonth;
+                dataChanged = true;
+                // Note: canteen access is no longer auto-paused on a calendar-month
+                // boundary. Each payment is valid for exactly one month from its own
+                // payment date (see isPaymentCurrentlyValid), so eligibility is now
+                // checked live at scan time in handleScanResult instead of being
+                // batch-updated here.
+            }
+            if (dailyTrackerDate !== today) {
+                dailyTrackerDate = today;
+                dailyTracker = {};
+                dataChanged = true;
+            }
+            if (dataChanged) saveAppData();
+        }
+
+        function scheduleAutomaticResets() {
+            const now = new Date();
+            const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1);
+            setTimeout(() => {
+                runAutomaticResets();
+                scheduleAutomaticResets();
+            }, nextMidnight - now);
+        }
+
+        function getUpcomingMonthKey() {
+            const nextMonth = new Date();
+            nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
+            return getMonthKey(nextMonth);
+        }
+
+        function removeExpiredClosedAccounts() {
+            const deletionDelay = 5 * 60 * 1000;
+            const now = Date.now();
+            const remainingStudents = students.filter(student => student.enrolled !== false || !student.closedAt || now - student.closedAt < deletionDelay);
+            const remainingTeachers = teachers.filter(teacher => teacher.enrolled !== false || !teacher.closedAt || now - teacher.closedAt < deletionDelay);
+            if (remainingStudents.length === students.length && remainingTeachers.length === teachers.length) return;
+            students = remainingStudents;
+            teachers = remainingTeachers;
+            saveAppData();
+        }
+
+        function scheduleClosedAccountCleanup() { setInterval(removeExpiredClosedAccounts, 60 * 1000); }
+
+        function formatMealMonth(monthKey) {
+            const [year, month] = monthKey.split('-').map(Number);
+            return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1));
+        }
+
+        function isStudentEnrolled(student) {
+            return student.enrolled !== false;
+        }
+
+        function getPaidPayment(studentId, mealMonth) {
+            return payments.find(payment => payment.studentId === studentId && payment.mealMonth === mealMonth && payment.status === 'PAID');
+        }
+
+        // --- Date-anchored payment expiry ---------------------------------------------
+        // A payment is valid from its payment date until 00:00 on that same day the
+        // following month (pay 11/09 -> valid through 10/10, expired from 11/10 00:00).
+        // See payments.html for where `expiresAt` is normally computed and stored on a
+        // payment record. For older records saved before this feature existed (no
+        // expiresAt field), the expiry is derived from paymentDate here instead of
+        // treating them as unpaid, so past payments keep working correctly.
+        function addOneMonth(date) {
+            const day = date.getDate();
+            const result = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+            const daysInTargetMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+            result.setDate(Math.min(day, daysInTargetMonth));
+            result.setHours(0, 0, 0, 0);
+            return result;
+        }
+        function parseDisplayDate(value) {
+            const match = String(value || '').trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            if (!match) return null;
+            const [, day, month, year] = match.map(Number);
+            const date = new Date(year, month - 1, day);
+            return (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) ? date : null;
+        }
+        function getPaymentExpiry(payment) {
+            if (Number.isFinite(payment.expiresAt)) return payment.expiresAt;
+            const parsedDate = parseDisplayDate(payment.paymentDate);
+            return parsedDate ? addOneMonth(parsedDate).getTime() : null;
+        }
+        function getLatestPaymentExpiry(studentId) {
+            const expiries = payments.filter(p => p.studentId === studentId && p.status === 'PAID').map(getPaymentExpiry).filter(e => e !== null);
+            return expiries.length ? Math.max(...expiries) : null;
+        }
+        function isPaymentCurrentlyValid(studentId, asOf = Date.now()) {
+            const expiresAt = getLatestPaymentExpiry(studentId);
+            return expiresAt !== null && asOf < expiresAt;
+        }
+
+        // Daily Meal Plan: ₹80 buys exactly ONE meal on one calendar day.
+        function getValidDailyPlan(studentId, asOf = new Date()) {
+            const dayKey = getDayKey(asOf);
+            return payments.find(payment =>
+                payment && payment.status === 'PAID' &&
+                payment.planType === 'daily' &&
+                String(payment.studentId) === String(studentId) &&
+                payment.dailyDate === dayKey
+            ) || null;
+        }
+
+        function isFeePaused(student) {
+            return student.paymentPaused === true;
+        }
+
+        function isTeacherEnrolled(teacher) {
+            return teacher.enrolled !== false;
+        }
+
+        function isTeacherPaused(teacher) {
+            return teacher.accountPaused === true;
+        }
+
+        // --- Grade-based breakfast eligibility --------------------------------------
+        // Grades are stored as free-text strings (they come from the editable Grades
+        // list managed in the admin panel via addGrade(), e.g. "Grade 1", "grade 3",
+        // or just "3"). This pulls the first number out of whatever was typed so the
+        // breakfast rule works no matter which format was used for a given record.
+        // Returns null if no number can be found, so callers can fail safe instead of
+        // guessing a grade.
+        function getNumericGrade(gradeValue) {
+            if (gradeValue === null || gradeValue === undefined) return null;
+            const match = String(gradeValue).match(/\d+/);
+            if (!match) return null;
+            const num = parseInt(match[0], 10);
+            return Number.isFinite(num) ? num : null;
+        }
+
+        // Single source of truth for the breakfast rule: Grade 1 and Grade 2 only.
+        // Grade 3 and above - and any student whose grade can't be confidently parsed -
+        // are not eligible for breakfast (they can still claim the other meals as
+        // normal). This rule applies to students only; teachers are not graded and
+        // are unaffected.
+        function isBreakfastAvailableForStudent(student) {
+            const grade = getNumericGrade(student && student.grade);
+            if (grade === null) return false; // Unknown/unparseable grade - fail safe, no breakfast.
+            return grade === 1 || grade === 2;
+        }
+
+        // --- Per-meal daily tracking --------------------------------------------------
+        // Each of the five meal categories (Breakfast, Mid-Morning, Lunch, Mid-Evening,
+        // Dinner) is tracked independently per person per day, keyed by a normalised
+        // version of the category name (e.g. "Mid-Morning" -> "mid_morning"). Claiming
+        // one meal never affects the availability of any other meal. This works for any
+        // category string, so adding/renaming meals in future only means updating the
+        // dropdown - no tracker changes are needed. Old records that only have
+        // {breakfast, lunch} boolean fields (from before this update) remain untouched
+        // and compatible; new meal keys are simply added alongside them.
+        function getMealTrackerKey(category) {
+            return String(category || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'meal';
+        }
+
+        function switchView(viewName) {
+            currentView = viewName;
+            document.getElementById('view-scanner').classList.add('hidden');
+            document.getElementById('view-admin-login').classList.add('hidden');
+            document.getElementById('view-admin-login-layer2').classList.add('hidden');
+            document.getElementById('view-admin-dashboard').classList.add('hidden');
+            stopScanner();
+
+            if (viewName === 'scanner') {
+                document.getElementById('view-scanner').classList.remove('hidden');
+                initScanner();
+            } else if (viewName === 'login') {
+                document.getElementById('view-admin-login').classList.remove('hidden');
+            } else if (viewName === 'dashboard') {
+                document.getElementById('view-admin-dashboard').classList.remove('hidden');
+            }
+            updateNavigation();
+        }
+
+        function updateNavigation() {
+            const scannerButton = document.getElementById('scanner-nav-button');
+            const dashboardButton = document.getElementById('dashboard-nav-button');
+
+            scannerButton.classList.toggle('hidden', !isAdminLoggedIn || currentView !== 'dashboard');
+            dashboardButton.textContent = isAdminLoggedIn ? 'Admin Dashboard' : 'Admin Login';
+            dashboardButton.classList.add('admin-login-subtle');
+        }
+
+        function checkAdminAccess() {
+            if (isAdminLoggedIn) switchView('dashboard');
+            else switchView('login');
+        }
+
+        // --- Two-layer admin login -----------------------------------------------------
+        // Layer 1: username + password. Layer 2: a separate security phrase. Both must
+        // pass before isAdminLoggedIn is set and the dashboard becomes reachable.
+        // Note: like the layer-1 password, this phrase lives in the client-side code,
+        // so it's an application-level speed bump (keeps casual/curious users out), not
+        // real security - actual protection of student/teacher data still has to come
+        // from Firebase Database Rules, not from anything checked in the browser.
+        const ADMIN_SECURITY_PHRASE = 'mcleods-secure-2026';
+
+        function processAdminLogin() {
+            const u = document.getElementById('admin-user').value;
+            const p = document.getElementById('admin-pass').value;
+            if (u === 'admin' && p === 'canteen123') {
+                document.getElementById('admin-pass').value = '';
+                document.getElementById('view-admin-login').classList.add('hidden');
+                document.getElementById('view-admin-login-layer2').classList.remove('hidden');
+                document.getElementById('admin-security-phrase').focus();
+                pendingAdminUsername = u;
+            } else {
+                alert('Invalid credentials!');
+            }
+        }
+
+        function processSecurityLayer2() {
+            const phrase = document.getElementById('admin-security-phrase').value;
+            if (phrase === ADMIN_SECURITY_PHRASE) {
+                isAdminLoggedIn = true;
+                currentAdminName = pendingAdminUsername;
+                sessionStorage.setItem('ecocanteen_admin_session', 'true');
+                sessionStorage.setItem('ecocanteen_admin_name', currentAdminName);
+                document.getElementById('admin-security-phrase').value = '';
+                refreshUI();
+                switchView('dashboard');
+            } else {
+                alert('Invalid security phrase!');
+                document.getElementById('admin-security-phrase').value = '';
+            }
+        }
+
+        function adminLogout() {
+            isAdminLoggedIn = false;
+            currentAdminName = '';
+            pendingAdminUsername = '';
+            sessionStorage.removeItem('ecocanteen_admin_session');
+            sessionStorage.removeItem('ecocanteen_admin_name');
+            document.getElementById('view-admin-login-layer2').classList.add('hidden');
+            switchView('scanner');
+        }
+
+        // Keep the early-school grades available and in the correct school order.
+        const DEFAULT_GRADES = [
+            'LKG', 'UKG',
+            'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5',
+            'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'
+        ];
+
+        function gradeSortValue(value) {
+            const raw = String(value || '').trim();
+            const upper = raw.toUpperCase();
+            if (upper === 'LKG' || upper.includes('LOWER KINDERGARTEN')) return 0;
+            if (upper === 'UKG' || upper.includes('UPPER KINDERGARTEN')) return 1;
+            const match = raw.match(/(\d+)/);
+            if (match) return 2 + Number(match[1]);
+            return 1000 + raw.toLowerCase().charCodeAt(0);
+        }
+
+        function normalizeGrades(list) {
+            const incoming = Array.isArray(list) ? list : [];
+            const result = [];
+            const seen = new Set();
+            incoming.forEach(g => {
+                const value = String(g || '').trim();
+                const key = value.toLowerCase();
+                if (value && !seen.has(key)) {
+                    seen.add(key);
+                    result.push(value);
+                }
+            });
+
+            // Always make LKG and UKG available. Insert them around Grade 1
+            // without disturbing the custom grade order chosen by the admin.
+            let lkgIndex = result.findIndex(g => g.toUpperCase() === 'LKG');
+            let ukgIndex = result.findIndex(g => g.toUpperCase() === 'UKG');
+            const firstGradeIndex = result.findIndex(g => /^GRADE\s*1$/i.test(g));
+            const insertionPoint = firstGradeIndex >= 0 ? firstGradeIndex : result.length;
+
+            if (lkgIndex < 0) {
+                result.splice(insertionPoint, 0, 'LKG');
+                lkgIndex = insertionPoint;
+            }
+
+            ukgIndex = result.findIndex(g => g.toUpperCase() === 'UKG');
+            if (ukgIndex < 0) {
+                const grade1Index = result.findIndex(g => /^GRADE\s*1$/i.test(g));
+                result.splice(grade1Index >= 0 ? grade1Index : lkgIndex + 1, 0, 'UKG');
+            }
+
+            // LKG must be before UKG, and UKG before Grade 1. If an old saved
+            // dataset had them in the wrong order, repair only those three.
+            const cleaned = result.filter(g => !['LKG', 'UKG'].includes(g.toUpperCase()));
+            const grade1Index = cleaned.findIndex(g => /^GRADE\s*1$/i.test(g));
+            const baseIndex = grade1Index >= 0 ? grade1Index : cleaned.length;
+            cleaned.splice(baseIndex, 0, 'LKG', 'UKG');
+            return cleaned;
+        }
+
+        grades = normalizeGrades(grades);
+
+        function rebuildGradePlacementOptions() {
+            const select = document.getElementById('new-grade-placement');
+            if (!select) return;
+            const current = select.value;
+            const items = [];
+            items.push({ value: 'smallest', label: 'Make this the smallest grade' });
+
+            for (let i = 0; i < grades.length - 1; i++) {
+                items.push({
+                    value: `between:${i}`,
+                    label: `Between ${grades[i]} and ${grades[i + 1]}`
+                });
+            }
+
+            items.push({ value: 'biggest', label: 'Make this the biggest grade' });
+            select.innerHTML = items.map(item =>
+                `<option value="${item.value}">${item.label}</option>`
+            ).join('');
+            if (items.some(item => item.value === current)) select.value = current;
+            else select.value = 'biggest';
+        }
+
+        function addGrade() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
+            const val = document.getElementById('new-grade-input').value.trim();
+            const placement = document.getElementById('new-grade-placement').value;
+            if (!val) { alert('Enter a grade name.'); return; }
+            if (grades.some(g => String(g).trim().toLowerCase() === val.toLowerCase())) {
+                alert(`${val} already exists.`);
+                return;
+            }
+
+            let insertIndex = grades.length;
+            if (placement === 'smallest') {
+                insertIndex = 0;
+            } else if (placement === 'biggest') {
+                insertIndex = grades.length;
+            } else if (placement.startsWith('between:')) {
+                const leftIndex = Number(placement.split(':')[1]);
+                insertIndex = Number.isInteger(leftIndex) ? leftIndex + 1 : grades.length;
+            }
+
+            grades.splice(insertIndex, 0, val);
+            document.getElementById('new-grade-input').value = '';
+            document.getElementById('new-grade-placement').value = 'biggest';
+            saveAppData();
+            refreshUI();
+        }
+
+        function addDivision() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
+            const val = document.getElementById('new-div-input').value.trim();
+            if (val && !divisions.includes(val)) {
+                divisions.push(val);
+                document.getElementById('new-div-input').value = '';
+                saveAppData();
+            }
+        }
+
+        function registerStudent() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
+            const name = document.getElementById('reg-name').value.trim();
+            const grade = document.getElementById('reg-grade').value;
+            const division = document.getElementById('reg-division').value;
+            if (!name) { alert('Enter student name.'); return; }
+            
+            const uniqueId = 'MC-' + Math.floor(100000 + Math.random() * 900000);
+            students.push({ id: uniqueId, name, grade, division, enrolled: true });
+            document.getElementById('reg-name').value = '';
+            saveAppData();
+            alert('Student added successfully!');
+        }
+
+        function registerTeacher() {
+            if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
+            const name = document.getElementById('reg-teacher-name').value.trim();
+            if (!name) { alert('Enter teacher name.'); return; }
+
+            const uniqueId = 'TEA-' + Math.floor(100000 + Math.random() * 900000);
+            teachers.push({ id: uniqueId, name, enrolled: true, accountPaused: false });
+            document.getElementById('reg-teacher-name').value = '';
+            saveAppData();
+            alert('Teacher added successfully!');
+        }
+
+        // --- Identification abstraction ---------------------------------------------
+        // Every identification method (QR camera, manual ID entry, and in future a
+        // fingerprint scanner or face recognition) ends up here with just a person ID
+        // and a method label. From this point on, identification is done: everything
+        // below is the SAME existing account/payment/meal validation regardless of how
+        // the ID was obtained. Adding a new identification method later only means
+        // calling handleScanResult(id, 'fingerprint') or handleScanResult(id, 'face')
+        // from that method's code - none of the validation below needs to change.
+        // --- Scan-result popup ---------------------------------------------------------
+        // One central function builds the popup for every accept/reject case, matching
+        // the school's requested layout: a close (x) in the corner, a tick/cross emoji,
+        // an ACCEPTED/REJECTED heading, a plain-language reason, and an OK button. It
+        // auto-dismisses after 2 seconds, but a fresh scan or the OK/x button both clear
+        // that timer so results never overlap or vanish early.
+        let scanPopupTimeoutId = null;
+        function showScanPopup(accepted, reasonHtml) {
+            clearTimeout(scanPopupTimeoutId);
+            const feedbackEl = document.getElementById('scan-feedback');
+            const accentColor = accepted ? '#2d4a3e' : '#b91c1c';
+            feedbackEl.className = "block";
+            feedbackEl.innerHTML = `
+                <button onclick="hideScanFeedback()" class="scan-popup-close" aria-label="Close">&times;</button>
+                <div class="scan-popup-emoji">${accepted ? '✅' : '❌'}</div>
+                <div class="scan-popup-heading" style="color:${accentColor}">${accepted ? 'ACCEPTED' : 'REJECTED'}</div>
+                <div class="scan-popup-reason">${reasonHtml}</div>
+                <button onclick="hideScanFeedback()" class="scan-popup-ok" style="background:${accentColor};color:#fff">OK</button>
+            `;
+            scanPopupTimeoutId = setTimeout(hideScanFeedback, 2000);
+        }
+        function hideScanFeedback() {
+            clearTimeout(scanPopupTimeoutId);
+            document.getElementById('scan-feedback').className = "hidden";
+        }
+
+        function handleScanResult(code, method = 'qr') {
+            // QR readers report the same code repeatedly while it remains in view.
+            // Keep the five-second cooldown silent so only one scan is processed.
+            if (scanLocked) return;
+            scanLocked = true;
+            setTimeout(() => { scanLocked = false; }, 5000);
+
+            runAutomaticResets();
+            const category = document.getElementById('active-meal-category').value;
+            const student = students.find(s => s.id === code);
+            const teacher = teachers.find(t => t.id === code);
+            const person = student || teacher;
+            const timeStr = new Date().toLocaleTimeString();
+
+            if (!person) {
+                showScanPopup(false, `"${code}" is not a recognised student or teacher ID.`);
+                return;
+            }
+
+            if (student) {
+                if (!isStudentEnrolled(person)) {
+                    showScanPopup(false, `${person.name}'s canteen account is no longer active.`);
+                    return;
+                }
+                if (isFeePaused(person)) {
+                    showScanPopup(false, `${person.name}'s canteen access is paused until their meal fee is recorded as paid.`);
+                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Account Paused)' });
+                    saveAppData();
+                    return;
+                }
+                const dailyPlan = getValidDailyPlan(person.id);
+                if (!isPaymentCurrentlyValid(person.id) && !dailyPlan) {
+                    const lastExpiry = getLatestPaymentExpiry(person.id);
+                    showScanPopup(false, lastExpiry
+                        ? `${person.name}'s canteen payment expired on ${new Date(lastExpiry).toLocaleDateString('en-GB')}.`
+                        : `${person.name} has no canteen payment on record.`);
+                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Payment Required)' });
+                    saveAppData();
+                    return;
+                }
+                // Meal eligibility check (grade-based). Must run BEFORE the daily
+                // duplicate check below, so an ineligible breakfast attempt never
+                // marks breakfast as claimed for the day. Lunch is unaffected.
+                if (category === 'Breakfast' && !isBreakfastAvailableForStudent(person)) {
+                    showScanPopup(false, `Breakfast is only available for Grades 1 and 2. ${person.name} is in ${person.grade}.`);
+                    addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Breakfast Not Available)' });
+                    saveAppData();
+                    return;
+                }
+
+                // Daily Meal Plan: once a daily-plan student claims any meal,
+                // every other meal category is rejected for the rest of that day.
+                if (dailyPlan) {
+                    if (!dailyTracker[person.id]) dailyTracker[person.id] = {};
+                    if (dailyTracker[person.id].__daily_plan__ === true) {
+                        showScanPopup(false, `${person.name} has already used their ₹80 Daily Meal Plan today. Only ONE meal is allowed.`);
+                        addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Daily Plan Already Used)' });
+                    } else {
+                        dailyTracker[person.id].__daily_plan__ = true;
+                        showScanPopup(true, `₹80 Daily Meal Plan used for ${person.name} — ${category} [${person.grade} / ${person.division}]`);
+                        addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Success (Daily Plan)' });
+                    }
+                    saveAppData();
+                    return;
+                }
+
+                // A Daily Meal Plan is different from the monthly plan: ₹80 permits
+                // exactly ONE meal for the whole day, regardless of which meal category
+                // is chosen. Breakfast remains subject to the normal Grade 1–2 rule.
+                if (dailyPlan) {
+                    if (!dailyTracker[person.id]) dailyTracker[person.id] = {};
+                    if (dailyTracker[person.id].__daily_plan__ === true) {
+                        showScanPopup(false, `${person.name} has already used their ₹80 Daily Meal Plan today. Only ONE meal is allowed.`);
+                        addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Rejected (Daily Plan Already Used)' });
+                    } else {
+                        dailyTracker[person.id].__daily_plan__ = true;
+                        showScanPopup(true, `₹80 Daily Meal Plan used for ${person.name} — ${category} [${person.grade} / ${person.division}]`);
+                        addScanLog({ time: timeStr, name: person.name, classGroup: `${person.grade} / ${person.division}`, category, method, status: 'Success (Daily Plan)' });
+                    }
+                    saveAppData();
+                    return;
+                }
+            }
+
+            if (teacher) {
+                if (!isTeacherEnrolled(teacher)) {
+                    showScanPopup(false, `${teacher.name}'s canteen account is no longer active.`);
+                    addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, method, status: 'Rejected (Account Closed)' });
+                    saveAppData();
+                    return;
+                }
+                if (isTeacherPaused(teacher)) {
+                    showScanPopup(false, `${teacher.name}'s canteen access is paused.`);
+                    addScanLog({ time: timeStr, name: teacher.name, classGroup: 'Teacher', category, method, status: 'Rejected (Account Paused)' });
+                    saveAppData();
+                    return;
+                }
+                // Note: the Grade 1/2 breakfast restriction applies to students only.
+                // Teachers are not graded and keep their existing, unrestricted
+                // breakfast/lunch access - unchanged from before this update.
+            }
+
+            const classGroup = student ? `${student.grade} / ${student.division}` : 'Teacher';
+            if (!dailyTracker[person.id]) dailyTracker[person.id] = {};
+            const mealKey = getMealTrackerKey(category);
+            let claimed = dailyTracker[person.id][mealKey] === true;
+
+            if (claimed) {
+                showScanPopup(false, `${person.name} (${classGroup}) already claimed ${category} today.`);
+                addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Rejected (Duplicate)' });
+            } else {
+                dailyTracker[person.id][mealKey] = true;
+                showScanPopup(true, `${category} recorded for ${person.name} [${classGroup}]`);
+                addScanLog({ time: timeStr, name: person.name, classGroup, category, method, status: 'Success' });
+            }
+            saveAppData();
+        }
+
+        function processManualScan() {
+            const inputVal = document.getElementById('manual-id-input').value.trim();
+            if (inputVal) {
+                handleScanResult(inputVal, 'manual');
+                document.getElementById('manual-id-input').value = '';
+            }
+        }
+
+        // --- QR scanner camera --------------------------------------------------------
+        // Uses the FRONT camera by default (facingMode: "user"), since staff hold a
+        // student's QR badge up to the tablet/phone screen facing them, not away from
+        // them. A "🔄 Use Back Camera" button lets staff switch to the rear camera when
+        // needed (e.g. scanning a badge held further away). On a device that only has
+        // one camera (e.g. a laptop webcam), there's nothing to switch to, so the
+        // button stays hidden and that single camera is used automatically. This is
+        // still plain QR scanning - no face recognition is involved (see
+        // identifyWithFace() below, which remains a not-yet-implemented placeholder).
+        let currentCameraFacing = 'user';
+        let availableCameraList = [];
+        let isSwitchingCamera = false;
+
+        function updateCameraSwitchButton() {
+            const btn = document.getElementById('camera-switch-btn');
+            if (!btn) return;
+            // Nothing to switch to on a single-camera device.
+            btn.classList.toggle('hidden', availableCameraList.length < 2);
+            btn.textContent = currentCameraFacing === 'user' ? '🔄 Use Back Camera' : '🔄 Use Front Camera';
+        }
+
+        function startCameraStream(constraint, scanConfig, onScanSuccess, onScanFailure) {
+            return html5QrCode.start(constraint, scanConfig, onScanSuccess, onScanFailure);
+        }
+
+        function initScanner() {
+            if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+            const scanConfig = { fps: 10, qrbox: { width: 220, height: 220 } };
+            const onScanSuccess = (decodedText) => handleScanResult(decodedText, 'qr');
+            const onScanFailure = (err) => {};
+
+            // Find out how many cameras this device actually has so we know whether
+            // the switch button is worth showing at all.
+            Html5Qrcode.getCameras().then(cameras => {
+                availableCameraList = cameras || [];
+                updateCameraSwitchButton();
+            }).catch(() => { availableCameraList = []; });
+
+            currentCameraFacing = 'user';
+            startCameraStream({ facingMode: "user" }, scanConfig, onScanSuccess, onScanFailure)
+                .then(() => updateCameraSwitchButton())
+                .catch(() => {
+                    // Front camera wasn't available/matched (common on devices with
+                    // only one camera). Ask the browser what cameras actually exist
+                    // and use whichever one is available instead.
+                    Html5Qrcode.getCameras().then(cameras => {
+                        availableCameraList = cameras || [];
+                        if (!availableCameraList.length) {
+                            console.log("No camera available on this device.");
+                            const feedbackEl = document.getElementById('scan-feedback');
+                            if (feedbackEl) {
+                                feedbackEl.className = "mt-4 p-4 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 font-bold block text-sm";
+                                feedbackEl.innerHTML = "📷 No camera detected or permission was denied. You can still use manual ID entry below.";
+                            }
+                            return;
+                        }
+                        currentCameraFacing = 'environment';
+                        startCameraStream(availableCameraList[0].id, scanConfig, onScanSuccess, onScanFailure)
+                            .then(() => updateCameraSwitchButton())
+                            .catch(err => console.log("Camera inactive or blocked", err));
+                    }).catch(err => console.log("Unable to list cameras", err));
+                });
+        }
+
+        // Swaps between the front and back camera. Always fully stops the current
+        // stream before starting a new one - html5-qrcode (and the underlying browser
+        // camera API) does not support starting a second stream while one is already
+        // running, so skipping the stop step is a common cause of a frozen/blank
+        // scanner. isSwitchingCamera guards against double-clicks triggering overlapping
+        // stop/start calls.
+        function switchCamera() {
+            if (!html5QrCode || isSwitchingCamera) return;
+            if (availableCameraList.length < 2) return; // nothing to switch to
+            isSwitchingCamera = true;
+            const btn = document.getElementById('camera-switch-btn');
+            if (btn) { btn.disabled = true; btn.classList.add('opacity-50'); }
+
+            const scanConfig = { fps: 10, qrbox: { width: 220, height: 220 } };
+            const onScanSuccess = (decodedText) => handleScanResult(decodedText, 'qr');
+            const onScanFailure = (err) => {};
+            const nextFacing = currentCameraFacing === 'user' ? 'environment' : 'user';
+
+            const stopCurrent = html5QrCode.isScanning ? html5QrCode.stop() : Promise.resolve();
+            stopCurrent
+                .catch(() => {}) // even if stop() reports an error, try to proceed to start the new camera
+                .then(() => startCameraStream({ facingMode: nextFacing }, scanConfig, onScanSuccess, onScanFailure))
+                .then(() => { currentCameraFacing = nextFacing; })
+                .catch(() => {
+                    // The requested facing mode didn't match a camera. Fall back to
+                    // whichever camera in the enumerated list isn't the one already
+                    // in use, so the button still does *something* useful.
+                    const fallbackCamera = availableCameraList.find(c => c.id !== (availableCameraList[0] && availableCameraList[0].id)) || availableCameraList[0];
+                    return startCameraStream(fallbackCamera.id, scanConfig, onScanSuccess, onScanFailure)
+                        .then(() => { currentCameraFacing = nextFacing; })
+                        .catch(err => console.log("Could not switch camera", err));
+                })
+                .finally(() => {
+                    isSwitchingCamera = false;
+                    if (btn) { btn.disabled = false; btn.classList.remove('opacity-50'); }
+                    updateCameraSwitchButton();
+                });
+        }
+
+        // --- Future biometric identification (NOT implemented) -----------------------
+        // These are intentionally inert placeholders so the identification/validation
+        // split above is easy to extend later. Neither function talks to any hardware,
+        // model, or biometric storage - there is currently no fingerprint scanner or
+        // face-recognition capability in this application. When that hardware/library
+        // is actually integrated, each function should resolve a person's existing
+        // student/teacher ID and then call handleScanResult(id, 'fingerprint') /
+        // handleScanResult(id, 'face') - reusing all of the validation above unchanged.
+        function identifyWithFingerprint() {
+            console.info('Fingerprint identification is not implemented yet.');
+        }
+        function identifyWithFace() {
+            console.info('Face recognition is not implemented yet.');
+        }
+
+        function stopScanner() {
+            if (html5QrCode && html5QrCode.isScanning) {
+                return html5QrCode.stop().catch(err => {});
+            }
+            return Promise.resolve();
+        }
+
+        function refreshUI() {
+            // Show a banner and disable data-entry while we still don't know
+            // what's actually saved in the cloud (see cloudDataReady).
+            const syncBanner = document.getElementById('cloud-sync-banner');
+            const stillLoading = isFirebaseConfigured() && !cloudDataReady;
+            if (syncBanner) syncBanner.classList.toggle('hidden', !stillLoading);
+            ['reg-name', 'reg-grade', 'reg-division', 'reg-teacher-name', 'new-grade-input', 'new-grade-placement', 'new-div-input'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.disabled = stillLoading;
+            });
+            document.querySelectorAll('[onclick="registerStudent()"], [onclick="registerTeacher()"], [onclick="addGrade()"], [onclick="addDivision()"]').forEach(btn => { btn.disabled = stillLoading; btn.classList.toggle('opacity-50', stillLoading); btn.classList.toggle('cursor-not-allowed', stillLoading); });
+
+            // Populate Grade/Division Dropdowns
+            document.getElementById('reg-grade').innerHTML = grades.map(g => `<option value="${g}">${g}</option>`).join('');
+            document.getElementById('reg-division').innerHTML = divisions.map(d => `<option value="${d}">${d}</option>`).join('');
+            rebuildGradePlacementOptions();
+
+            // Populate directories and printable ID cards
+            const tableBody = document.getElementById('student-table-body');
+            const teacherTableBody = document.getElementById('teacher-table-body');
+            const printCardsContainer = document.getElementById('printable-cards-container');
+
+            if (students.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>`;
+            } else {
+                tableBody.innerHTML = students.map(s => `
+                    <tr class="border-b border-gray-100">
+                        <td class="p-3"><div id="directory-student-qr-${s.id}"></div></td>
+                        <td class="p-3 font-semibold">${s.name}</td>
+                        <td class="p-3">${s.grade}</td>
+                        <td class="p-3">${s.division}</td>
+                        <td class="p-3 font-mono text-xs text-gray-500">${s.id}</td>
+                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('student', '${s.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isStudentEnrolled(s) ? `<button onclick="closeStudentAccount('${s.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<span class="text-xs font-semibold text-gray-500">Closed</span> <button onclick="deleteStudentPermanently('${s.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td>
+                    </tr>
+                `).join('');
+            }
+
+            if (teachers.length === 0) {
+                teacherTableBody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">No teachers registered yet.</td></tr>`;
+            } else {
+                teacherTableBody.innerHTML = teachers.map(t => `
+                    <tr class="border-b border-gray-100">
+                        <td class="p-3"><div id="directory-teacher-qr-${t.id}"></div></td>
+                        <td class="p-3 font-semibold">${t.name}</td>
+                        <td class="p-3 font-mono text-xs text-gray-500">${t.id}</td>
+                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('teacher', '${t.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isTeacherEnrolled(t) ? `${isTeacherPaused(t) ? `<button onclick="unpauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeTeacherAccount('${t.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<span class="text-xs font-semibold text-gray-500">Closed</span> <button onclick="deleteTeacherPermanently('${t.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td>
+                    </tr>
+                `).join('');
+            }
+
+            const printFilter = document.getElementById('badge-print-filter').value;
+            let printablePeople = [];
+            if (badgePrintIndividual) {
+                const list = badgePrintIndividual.type === 'teacher' ? teachers : students;
+                const person = list.find(p => p.id === badgePrintIndividual.id);
+                if (person) printablePeople = [{ ...person, type: badgePrintIndividual.type }];
+            } else {
+                if (printFilter === 'students' || printFilter === 'all') printablePeople.push(...students.map(s => ({ ...s, type: 'student' })));
+                if (printFilter === 'teachers' || printFilter === 'all') printablePeople.push(...teachers.map(t => ({ ...t, type: 'teacher' })));
+            }
+
+            printCardsContainer.innerHTML = printablePeople.length === 0 ?
+                `<p class="text-center text-gray-400 col-span-2">No badges to print.</p>` :
+                printablePeople.map(person => `
+                    <div class="print-card">
+                        <div class="badge-person-row">
+                            <div class="badge-qr" id="print-qr-${person.id}"></div>
+                            <div class="badge-person-details">
+                                <p><strong>Name:</strong> ${person.name}</p>
+                                <p><strong>Class:</strong> ${person.type === 'teacher' ? 'Teacher' : `${person.grade} — ${person.division}`}</p>
+                            </div>
+                        </div>
+                        <div class="badge-brand-row">
+                            <img class="badge-logo" src="Not needed/McLeod's English School LOGO.png" alt="McLEOD's English School logo">
+                            <p class="badge-title">Canteen Card</p>
+                        </div>
+                        <p class="badge-footer">Property of McLEOD's English School<br>if found please return to,<br>McLEOD's English School</p>
+                        <p class="badge-id">${person.id}</p>
+                    </div>
+                `).join('');
+
+            setTimeout(() => {
+                printablePeople.forEach(person => {
+                    const el = document.getElementById(`print-qr-${person.id}`);
+                    if (el && el.innerHTML === "") new QRCode(el, { text: person.id, width: 100, height: 100 });
+                    if (el) { /* QR stays normal black-and-white */ }
+                });
+                students.forEach(student => {
+                    const el = document.getElementById(`directory-student-qr-${student.id}`);
+                    if (el && el.innerHTML === "") new QRCode(el, { text: student.id, width: 44, height: 44 });
+                    if (el) { /* QR stays normal black-and-white */ }
+                });
+                teachers.forEach(teacher => {
+                    const el = document.getElementById(`directory-teacher-qr-${teacher.id}`);
+                    if (el && el.innerHTML === "") new QRCode(el, { text: teacher.id, width: 44, height: 44 });
+                    if (el) { /* QR stays normal black-and-white */ }
+                });
+            }, 100);
+
+            // Populate Logs
+            const logsBody = document.getElementById('logs-table-body');
+            logsBody.innerHTML = scanLogs.length === 0 ? `<tr><td colspan="5" class="p-4 text-center text-gray-400">No scan activity logged yet.</td></tr>` :
+                scanLogs.map(l => `
+                    <tr class="border-b border-gray-100">
+                        <td class="p-3 font-mono text-xs text-gray-500">${l.time}</td>
+                        <td class="p-3 font-medium">${l.name}</td>
+                        <td class="p-3 text-xs">${l.classGroup}</td>
+                        <td class="p-3 text-xs">${l.category}</td>
+                        <td class="p-3"><span class="px-2 py-1 rounded text-xs font-bold ${l.status.includes('Success') ? 'bg-[#d8e2dc] text-[#2d4a3e]' : 'bg-red-100 text-red-800'}">${l.status}</span></td>
+                    </tr>
+                `).join('');
+
+        }
+
+        function closeStudentAccount(id) {
+            const student = students.find(s => s.id === id);
+            if (!student || !isStudentEnrolled(student)) return;
+            if (!confirm(`Close ${student.name}'s canteen account? Their payment history will be preserved.`)) return;
+            student.enrolled = false;
+            student.closedAt = Date.now();
+            saveAppData();
+        }
+
+        function deleteStudentPermanently(id) {
+            const student = students.find(s => s.id === id);
+            if (!student || isStudentEnrolled(student)) return;
+            if (!confirm(`Permanently delete ${student.name}'s account? This cannot be undone.`)) return;
+            students = students.filter(s => s.id !== id);
+            saveAppData();
+        }
+
+        function pauseTeacherAccount(id) {
+            const teacher = teachers.find(t => t.id === id);
+            if (!teacher || !isTeacherEnrolled(teacher) || isTeacherPaused(teacher)) return;
+            if (!confirm(`Pause ${teacher.name}'s canteen account?`)) return;
+            teacher.accountPaused = true;
+            saveAppData();
+        }
+
+        function unpauseTeacherAccount(id) {
+            const teacher = teachers.find(t => t.id === id);
+            if (!teacher || !isTeacherEnrolled(teacher) || !isTeacherPaused(teacher)) return;
+            if (!confirm(`Unpause ${teacher.name}'s canteen account?`)) return;
+            teacher.accountPaused = false;
+            saveAppData();
+        }
+
+        function closeTeacherAccount(id) {
+            const teacher = teachers.find(t => t.id === id);
+            if (!teacher || !isTeacherEnrolled(teacher)) return;
+            if (!confirm(`Close ${teacher.name}'s canteen account? Their scan history will be preserved.`)) return;
+            teacher.enrolled = false;
+            teacher.closedAt = Date.now();
+            saveAppData();
+        }
+
+        function deleteTeacherPermanently(id) {
+            const teacher = teachers.find(t => t.id === id);
+            if (!teacher || isTeacherEnrolled(teacher)) return;
+            if (!confirm(`Permanently delete ${teacher.name}'s account? This cannot be undone.`)) return;
+            teachers = teachers.filter(t => t.id !== id);
+            saveAppData();
+        }
+
+        function printIndividualBadge(type, id) {
+            badgePrintIndividual = { type, id };
+            refreshUI();
+            setTimeout(() => window.print(), 150);
+        }
+
+        window.addEventListener('afterprint', () => {
+            if (badgePrintIndividual) {
+                badgePrintIndividual = null;
+                refreshUI();
+            }
+        });
+
+        loadCloudData();
+        runAutomaticResets();
+        scheduleAutomaticResets();
+        scheduleClosedAccountCleanup();
+    </script>
+
+<script>
+function refreshAllQrCodes() {
+    // QR codes remain normal black-and-white. Dark mode only adds a bright
+    // backing around them so they stay clearly visible and scannable.
+}
+
+function updateThemeButton() {
+    const button = document.getElementById('theme-toggle');
+    if (!button) return;
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    button.textContent = isDark ? '☀️ Light Mode' : '🌙 Dark Mode';
+    button.setAttribute('aria-label', isDark ? 'Switch to light mode' : 'Switch to dark mode');
+    button.title = isDark ? 'Switch to light mode' : 'Switch to dark mode';
+}
+function toggleTheme() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const nextTheme = isDark ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', nextTheme);
+    localStorage.setItem('mccafe-theme', nextTheme);
+    updateThemeButton();
+    setTimeout(refreshAllQrCodes, 0);
+}
+window.addEventListener('beforeprint', () => {
+    // Printed cards must use the normal black-on-transparent QR appearance.
+    document.documentElement.setAttribute('data-theme', 'light');
+    refreshAllQrCodes();
+});
+window.addEventListener('afterprint', () => {
+    const savedTheme = localStorage.getItem('mccafe-theme');
+    document.documentElement.setAttribute('data-theme', savedTheme === 'dark' ? 'dark' : 'light');
+    refreshAllQrCodes();
+    updateThemeButton();
+});
+document.addEventListener('DOMContentLoaded', () => {
+    updateThemeButton();
+    setTimeout(refreshAllQrCodes, 150);
+});
+</script>
+</body>
 </html>
