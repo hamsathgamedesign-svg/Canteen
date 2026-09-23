@@ -478,6 +478,22 @@
         // up to Firebase. Writing too early silently resurrects that stale data
         // and overwrites whatever is really in the cloud. See addStudent/addTeacher.
         let cloudDataReady = false;
+        // Snapshot of the last cloud state we actually saw. Local writes are merged
+        // against this snapshot so one device cannot accidentally overwrite another
+        // device's unrelated changes with an old whole-array copy.
+        let lastCloudState = null;
+        let lastCloudStateSignature = '';
+        let peopleRenderSignature = '';
+        let qrRenderTimer = null;
+        let refreshUiTimer = null;
+
+        function stableStateSignature(value) {
+            try { return JSON.stringify(value); } catch (error) { return ''; }
+        }
+
+        function cloneState(value) {
+            try { return JSON.parse(JSON.stringify(value)); } catch (error) { return value; }
+        }
 
         function addScanLog(entry) { scanLogs.unshift({ ...entry, occurredAt: new Date().toISOString() }); }
 
@@ -496,28 +512,145 @@
             return firebaseConfig.apiKey && firebaseConfig.databaseURL;
         }
 
-        function syncCloudData() {
-            if (!firebaseDatabase) return;
-            if (!cloudDataReady) {
-                // Refuse to write until we know what's actually in the cloud.
-                // Writing early would push this device's possibly-stale local
-                // copy over the top of the real cloud data.
-                console.warn('Skipped cloud sync: still waiting for the initial load from Firebase.');
-                return;
+        function mergeArrayById(currentArray, previousCloudArray, localArray) {
+            const current = Array.isArray(currentArray) ? currentArray : [];
+            const previous = Array.isArray(previousCloudArray) ? previousCloudArray : [];
+            const local = Array.isArray(localArray) ? localArray : [];
+            const previousById = new Map(previous.filter(item => item && item.id != null).map(item => [String(item.id), item]));
+            const localById = new Map(local.filter(item => item && item.id != null).map(item => [String(item.id), item]));
+            const currentById = new Map(current.filter(item => item && item.id != null).map(item => [String(item.id), item]));
+
+            // Only IDs whose local record changed since our last cloud snapshot are
+            // considered local edits. Everything else is left at the newest cloud value.
+            const changedIds = new Set();
+            for (const item of local) {
+                if (!item || item.id == null) continue;
+                const key = String(item.id);
+                if (!previousById.has(key) || stableStateSignature(previousById.get(key)) !== stableStateSignature(item)) changedIds.add(key);
+            }
+            // A locally deleted record is a real change too.
+            for (const item of previous) {
+                if (!item || item.id == null) continue;
+                const key = String(item.id);
+                if (!localById.has(key)) changedIds.add(key);
             }
 
-            firebaseDatabase.ref('mcleods-canteen').update({
-                grades,
-                divisions,
-                students,
-                teachers,
-                payments,
+            const result = current.slice();
+            for (const key of changedIds) {
+                const index = result.findIndex(item => item && String(item.id) === key);
+                if (localById.has(key)) {
+                    const localItem = cloneState(localById.get(key));
+                    if (index >= 0) result[index] = localItem;
+                    else result.push(localItem);
+                } else if (index >= 0) {
+                    result.splice(index, 1);
+                }
+            }
+            return result;
+        }
+
+        function mergeLogs(currentLogs, previousLogs, localLogs) {
+            const current = Array.isArray(currentLogs) ? currentLogs : [];
+            const previous = Array.isArray(previousLogs) ? previousLogs : [];
+            const local = Array.isArray(localLogs) ? localLogs : [];
+            const key = entry => stableStateSignature(entry);
+            const previousKeys = new Set(previous.map(key));
+            const localKeys = new Set(local.map(key));
+            const changedLocal = local.filter(entry => !previousKeys.has(key(entry)));
+            const previousKeySet = new Set(previous.map(key));
+            // Keep current cloud history and append only genuinely new local entries.
+            const result = current.slice();
+            const existing = new Set(result.map(key));
+            for (const entry of changedLocal) {
+                const k = key(entry);
+                if (!existing.has(k)) { result.unshift(cloneState(entry)); existing.add(k); }
+            }
+            // If the local log was explicitly cleared after the last cloud snapshot,
+            // preserve the user's clear rather than resurrecting old history.
+            if (local.length === 0 && previous.length > 0) return [];
+            return result;
+        }
+
+        function mergeDailyTracker(currentTracker, previousTracker, localTracker) {
+            const current = currentTracker && typeof currentTracker === 'object' ? cloneState(currentTracker) : {};
+            const previous = previousTracker && typeof previousTracker === 'object' ? previousTracker : {};
+            const local = localTracker && typeof localTracker === 'object' ? localTracker : {};
+            for (const [personId, localValue] of Object.entries(local)) {
+                const prevValue = previous[personId];
+                if (stableStateSignature(prevValue) !== stableStateSignature(localValue)) current[personId] = cloneState(localValue);
+            }
+            for (const personId of Object.keys(previous)) {
+                if (!Object.prototype.hasOwnProperty.call(local, personId)) delete current[personId];
+            }
+            return current;
+        }
+
+        function syncCloudData() {
+            if (!firebaseDatabase || !cloudDataReady) return;
+
+            const localState = {
+                grades: cloneState(grades),
+                divisions: cloneState(divisions),
+                students: cloneState(students),
+                teachers: cloneState(teachers),
+                payments: cloneState(payments),
                 paymentDeadlineDay,
-                dailyTracker,
+                dailyTracker: cloneState(dailyTracker),
                 dailyTrackerDate,
                 monthlyResetMonth,
-                scanLogs,
-                updatedAt: new Date().toISOString()
+                scanLogs: cloneState(scanLogs)
+            };
+            const previous = lastCloudState || {};
+
+            firebaseDatabase.ref('mcleods-canteen').transaction(current => {
+                const cloud = current && typeof current === 'object' ? current : {};
+                const merged = {
+                    ...cloud,
+                    grades: stableStateSignature(previous.grades) !== stableStateSignature(localState.grades)
+                        ? cloneState(localState.grades) : (Array.isArray(cloud.grades) ? cloud.grades : localState.grades),
+                    divisions: stableStateSignature(previous.divisions) !== stableStateSignature(localState.divisions)
+                        ? cloneState(localState.divisions) : (Array.isArray(cloud.divisions) ? cloud.divisions : localState.divisions),
+                    students: mergeArrayById(cloud.students, previous.students, localState.students),
+                    teachers: mergeArrayById(cloud.teachers, previous.teachers, localState.teachers),
+                    payments: mergeArrayById(cloud.payments, previous.payments, localState.payments),
+                    paymentDeadlineDay: previous.paymentDeadlineDay !== localState.paymentDeadlineDay
+                        ? localState.paymentDeadlineDay : (Number(cloud.paymentDeadlineDay) || localState.paymentDeadlineDay),
+                    dailyTracker: mergeDailyTracker(cloud.dailyTracker, previous.dailyTracker, localState.dailyTracker),
+                    dailyTrackerDate: previous.dailyTrackerDate !== localState.dailyTrackerDate
+                        ? localState.dailyTrackerDate : (cloud.dailyTrackerDate || localState.dailyTrackerDate),
+                    monthlyResetMonth: previous.monthlyResetMonth !== localState.monthlyResetMonth
+                        ? localState.monthlyResetMonth : (cloud.monthlyResetMonth || localState.monthlyResetMonth),
+                    scanLogs: mergeLogs(cloud.scanLogs, previous.scanLogs, localState.scanLogs),
+                    updatedAt: new Date().toISOString()
+                };
+                return merged;
+            }).then(result => {
+                if (!result.committed) throw new Error('Firebase transaction was not committed.');
+                const data = result.snapshot.val() || {};
+                lastCloudState = cloneState(data);
+                lastCloudStateSignature = stableStateSignature(lastCloudState);
+                // Adopt the committed cloud state so this browser is never left with a
+                // stale copy after another device changed something during our write.
+                grades = normalizeGrades(Array.isArray(data.grades) ? data.grades : grades);
+                divisions = Array.isArray(data.divisions) ? data.divisions : divisions;
+                students = Array.isArray(data.students) ? data.students : students;
+                teachers = Array.isArray(data.teachers) ? data.teachers : teachers;
+                payments = Array.isArray(data.payments) ? data.payments : payments;
+                paymentDeadlineDay = Number(data.paymentDeadlineDay) || paymentDeadlineDay;
+                dailyTracker = data.dailyTracker || {};
+                dailyTrackerDate = data.dailyTrackerDate || dailyTrackerDate;
+                monthlyResetMonth = data.monthlyResetMonth || monthlyResetMonth;
+                scanLogs = Array.isArray(data.scanLogs) ? data.scanLogs : scanLogs;
+                localStorage.setItem('ecocanteen_grades', JSON.stringify(grades));
+                localStorage.setItem('ecocanteen_divisions', JSON.stringify(divisions));
+                localStorage.setItem('ecocanteen_students', JSON.stringify(students));
+                localStorage.setItem('ecocanteen_teachers', JSON.stringify(teachers));
+                localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
+                localStorage.setItem('ecocanteen_tracker', JSON.stringify(dailyTracker));
+                localStorage.setItem('ecocanteen_tracker_date', dailyTrackerDate);
+                localStorage.setItem('ecocanteen_monthly_reset_month', monthlyResetMonth);
+                localStorage.setItem('ecocanteen_logs', JSON.stringify(scanLogs));
+                refreshUI();
             }).catch(error => console.error('Firebase sync failed:', error));
         }
 
@@ -560,6 +693,8 @@
                         dailyTrackerDate = cloudData.dailyTrackerDate || dailyTrackerDate;
                         monthlyResetMonth = cloudData.monthlyResetMonth || monthlyResetMonth;
                         scanLogs = Array.isArray(cloudData.scanLogs) ? cloudData.scanLogs : [];
+                        lastCloudState = cloneState(cloudData);
+                        lastCloudStateSignature = stableStateSignature(lastCloudState);
                         cloudDataReady = true;
                     } else {
                         // Nothing in the cloud yet - it's safe to seed it from local data.
@@ -572,6 +707,10 @@
                     firebaseDatabase.ref('mcleods-canteen').on('value', latestSnapshot => {
                         const latestData = latestSnapshot.val();
                         if (!latestData) return;
+                        const incomingSignature = stableStateSignature(latestData);
+                        if (incomingSignature === lastCloudStateSignature) return;
+                        lastCloudState = cloneState(latestData);
+                        lastCloudStateSignature = incomingSignature;
                         grades = normalizeGrades(Array.isArray(latestData.grades) ? latestData.grades : grades);
                         divisions = Array.isArray(latestData.divisions) ? latestData.divisions : divisions;
                         students = Array.isArray(latestData.students) ? latestData.students : students;
@@ -1299,6 +1438,27 @@
             return Promise.resolve();
         }
 
+        function queueQrGeneration(people) {
+            clearTimeout(qrRenderTimer);
+            qrRenderTimer = setTimeout(() => {
+                const createQr = (id, size) => {
+                    const el = document.getElementById(id);
+                    if (!el || el.dataset.qrReady === 'true') return;
+                    if (typeof QRCode !== 'function') return;
+                    try {
+                        new QRCode(el, { text: id.replace(/^(?:directory-student-qr-|directory-teacher-qr-|print-qr-)/, ''), width: size, height: size });
+                        el.dataset.qrReady = 'true';
+                    } catch (error) {
+                        console.warn('QR generation failed; will retry without clearing the container:', error);
+                    }
+                };
+                students.forEach(student => createQr(`directory-student-qr-${student.id}`, 44));
+                teachers.forEach(teacher => createQr(`directory-teacher-qr-${teacher.id}`, 44));
+                const printEls = document.querySelectorAll('[id^="print-qr-"]');
+                printEls.forEach(el => createQr(el.id, 100));
+            }, 0);
+        }
+
         function refreshUI() {
             // Show a banner and disable data-entry while we still don't know
             // what's actually saved in the cloud (see cloudDataReady).
@@ -1316,87 +1476,81 @@
             document.getElementById('reg-division').innerHTML = divisions.map(d => `<option value="${d}">${d}</option>`).join('');
             rebuildGradePlacementOptions();
 
-            // Populate directories and printable ID cards
-            const tableBody = document.getElementById('student-table-body');
-            const teacherTableBody = document.getElementById('teacher-table-body');
-            const printCardsContainer = document.getElementById('printable-cards-container');
-
-            if (students.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>`;
-            } else {
-                tableBody.innerHTML = students.map(s => `
-                    <tr class="border-b border-gray-100">
-                        <td class="p-3"><div id="directory-student-qr-${s.id}"></div></td>
-                        <td class="p-3 font-semibold">${s.name}</td>
-                        <td class="p-3">${s.grade}</td>
-                        <td class="p-3">${s.division}</td>
-                        <td class="p-3 font-mono text-xs text-gray-500">${s.id}</td>
-                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('student', '${s.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isStudentEnrolled(s) ? `<button onclick="closeStudentAccount('${s.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<span class="text-xs font-semibold text-gray-500">Closed</span> <button onclick="deleteStudentPermanently('${s.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td>
-                    </tr>
-                `).join('');
-            }
-
-            if (teachers.length === 0) {
-                teacherTableBody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">No teachers registered yet.</td></tr>`;
-            } else {
-                teacherTableBody.innerHTML = teachers.map(t => `
-                    <tr class="border-b border-gray-100">
-                        <td class="p-3"><div id="directory-teacher-qr-${t.id}"></div></td>
-                        <td class="p-3 font-semibold">${t.name}</td>
-                        <td class="p-3 font-mono text-xs text-gray-500">${t.id}</td>
-                        <td class="p-3 space-x-2"><button onclick="printIndividualBadge('teacher', '${t.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isTeacherEnrolled(t) ? `${isTeacherPaused(t) ? `<button onclick="unpauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeTeacherAccount('${t.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<span class="text-xs font-semibold text-gray-500">Closed</span> <button onclick="deleteTeacherPermanently('${t.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td>
-                    </tr>
-                `).join('');
-            }
-
+            // Rebuild the QR-containing directories only when the actual people data
+            // or badge selection changed. Routine Firebase updates (payments, scan logs,
+            // daily trackers, etc.) must NOT destroy the QR DOM and recreate it.
             const printFilter = document.getElementById('badge-print-filter').value;
-            let printablePeople = [];
-            if (badgePrintIndividual) {
-                const list = badgePrintIndividual.type === 'teacher' ? teachers : students;
-                const person = list.find(p => p.id === badgePrintIndividual.id);
-                if (person) printablePeople = [{ ...person, type: badgePrintIndividual.type }];
-            } else {
-                if (printFilter === 'students' || printFilter === 'all') printablePeople.push(...students.map(s => ({ ...s, type: 'student' })));
-                if (printFilter === 'teachers' || printFilter === 'all') printablePeople.push(...teachers.map(t => ({ ...t, type: 'teacher' })));
-            }
+            const directorySignature = stableStateSignature({
+                students,
+                teachers,
+                printFilter,
+                badgePrintIndividual
+            });
+            if (directorySignature !== peopleRenderSignature) {
+                peopleRenderSignature = directorySignature;
+                const tableBody = document.getElementById('student-table-body');
+                const teacherTableBody = document.getElementById('teacher-table-body');
+                const printCardsContainer = document.getElementById('printable-cards-container');
 
-            printCardsContainer.innerHTML = printablePeople.length === 0 ?
-                `<p class="text-center text-gray-400 col-span-2">No badges to print.</p>` :
-                printablePeople.map(person => `
-                    <div class="print-card">
-                        <div class="badge-person-row">
-                            <div class="badge-qr" id="print-qr-${person.id}"></div>
-                            <div class="badge-person-details">
-                                <p><strong>Name:</strong> ${person.name}</p>
-                                <p><strong>Class:</strong> ${person.type === 'teacher' ? 'Teacher' : `${person.grade} — ${person.division}`}</p>
+                if (students.length === 0) {
+                    tableBody.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-gray-400">No students registered yet.</td></tr>`;
+                } else {
+                    tableBody.innerHTML = students.map(s => `
+                        <tr class="border-b border-gray-100">
+                            <td class="p-3"><div id="directory-student-qr-${s.id}"></div></td>
+                            <td class="p-3 font-semibold">${s.name}</td>
+                            <td class="p-3">${s.grade}</td>
+                            <td class="p-3">${s.division}</td>
+                            <td class="p-3 font-mono text-xs text-gray-500">${s.id}</td>
+                            <td class="p-3 space-x-2"><button onclick="printIndividualBadge('student', '${s.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isStudentEnrolled(s) ? `<button onclick="closeStudentAccount('${s.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<span class="text-xs font-semibold text-gray-500">Closed</span> <button onclick="deleteStudentPermanently('${s.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td>
+                        </tr>
+                    `).join('');
+                }
+
+                if (teachers.length === 0) {
+                    teacherTableBody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-400">No teachers registered yet.</td></tr>`;
+                } else {
+                    teacherTableBody.innerHTML = teachers.map(t => `
+                        <tr class="border-b border-gray-100">
+                            <td class="p-3"><div id="directory-teacher-qr-${t.id}"></div></td>
+                            <td class="p-3 font-semibold">${t.name}</td>
+                            <td class="p-3 font-mono text-xs text-gray-500">${t.id}</td>
+                            <td class="p-3 space-x-2"><button onclick="printIndividualBadge('teacher', '${t.id}')" class="text-[#2d4a3e] text-xs font-semibold hover:underline">Print ID</button>${isTeacherEnrolled(t) ? `${isTeacherPaused(t) ? `<button onclick="unpauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Unpause Account</button>` : `<button onclick="pauseTeacherAccount('${t.id}')" class="text-amber-700 text-xs font-semibold hover:underline">Pause Account</button>`} <button onclick="closeTeacherAccount('${t.id}')" class="text-red-600 text-xs font-semibold hover:underline">Close Account</button>` : `<span class="text-xs font-semibold text-gray-500">Closed</span> <button onclick="deleteTeacherPermanently('${t.id}')" class="text-red-700 text-xs font-semibold hover:underline">Delete Now</button>`}</td>
+                        </tr>
+                    `).join('');
+                }
+
+                let printablePeople = [];
+                if (badgePrintIndividual) {
+                    const list = badgePrintIndividual.type === 'teacher' ? teachers : students;
+                    const person = list.find(p => p.id === badgePrintIndividual.id);
+                    if (person) printablePeople = [{ ...person, type: badgePrintIndividual.type }];
+                } else {
+                    if (printFilter === 'students' || printFilter === 'all') printablePeople.push(...students.map(s => ({ ...s, type: 'student' })));
+                    if (printFilter === 'teachers' || printFilter === 'all') printablePeople.push(...teachers.map(t => ({ ...t, type: 'teacher' })));
+                }
+
+                printCardsContainer.innerHTML = printablePeople.length === 0 ?
+                    `<p class="text-center text-gray-400 col-span-2">No badges to print.</p>` :
+                    printablePeople.map(person => `
+                        <div class="print-card">
+                            <div class="badge-person-row">
+                                <div class="badge-qr" id="print-qr-${person.id}"></div>
+                                <div class="badge-person-details">
+                                    <p><strong>Name:</strong> ${person.name}</p>
+                                    <p><strong>Class:</strong> ${person.type === 'teacher' ? 'Teacher' : `${person.grade} — ${person.division}`}</p>
+                                </div>
                             </div>
+                            <div class="badge-brand-row">
+                                <img class="badge-logo" src="Not needed/McLeod's English School LOGO.png" alt="McLEOD's English School logo">
+                                <p class="badge-title">Canteen Card</p>
+                            </div>
+                            <p class="badge-footer">Property of McLEOD's English School<br>if found please return to,<br>McLEOD's English School</p>
+                            <p class="badge-id">${person.id}</p>
                         </div>
-                        <div class="badge-brand-row">
-                            <img class="badge-logo" src="Not needed/McLeod's English School LOGO.png" alt="McLEOD's English School logo">
-                            <p class="badge-title">Canteen Card</p>
-                        </div>
-                        <p class="badge-footer">Property of McLEOD's English School<br>if found please return to,<br>McLEOD's English School</p>
-                        <p class="badge-id">${person.id}</p>
-                    </div>
-                `).join('');
-
-            setTimeout(() => {
-                printablePeople.forEach(person => {
-                    const el = document.getElementById(`print-qr-${person.id}`);
-                    if (el && el.innerHTML === "") new QRCode(el, { text: person.id, width: 100, height: 100 });
-                    if (el) { /* QR stays normal black-and-white */ }
-                });
-                students.forEach(student => {
-                    const el = document.getElementById(`directory-student-qr-${student.id}`);
-                    if (el && el.innerHTML === "") new QRCode(el, { text: student.id, width: 44, height: 44 });
-                    if (el) { /* QR stays normal black-and-white */ }
-                });
-                teachers.forEach(teacher => {
-                    const el = document.getElementById(`directory-teacher-qr-${teacher.id}`);
-                    if (el && el.innerHTML === "") new QRCode(el, { text: teacher.id, width: 44, height: 44 });
-                    if (el) { /* QR stays normal black-and-white */ }
-                });
-            }, 100);
+                    `).join('');
+                queueQrGeneration(printablePeople);
+            }
 
             // Populate Logs
             const logsBody = document.getElementById('logs-table-body');
