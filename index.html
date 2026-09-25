@@ -1647,7 +1647,14 @@
 
             // Populate Grade/Division Dropdowns
             ensureGradeSettings();
-            document.getElementById('reg-grade').innerHTML = grades.map(g => `<option value="${g}">${g}</option>`).join('');
+            const gradeSelect = document.getElementById('reg-grade');
+            const previousGrade = gradeSelect ? gradeSelect.value : '';
+            if (gradeSelect) {
+                gradeSelect.innerHTML = grades.map(g => `<option value="${g}">${g}</option>`).join('');
+                if (previousGrade && grades.includes(previousGrade)) {
+                    gradeSelect.value = previousGrade;
+                }
+            }
             document.getElementById('reg-division').innerHTML = divisions.map(d => `<option value="${d}">${d}</option>`).join('');
             updateStudentDivisionField();
             rebuildGradePlacementOptions();
