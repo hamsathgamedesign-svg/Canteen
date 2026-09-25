@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>McCafe Monitor — Admin Settings</title>
+<link rel="icon" type="image/png" href="Not needed/McLeod's English School LOGO.png">
+<script>(function(){const t=localStorage.getItem('mccafe-theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.18.0/firebase-database-compat.js"></script>
+<style>
+:root{--bg:#f4f6f0;--card:#fff;--text:#26332d;--muted:#66746d;--border:#d8e2dc;--soft:#edf3ee;--green:#2d4a3e;--green2:#3c5f51;--danger:#9f2525;--shadow:0 10px 30px rgba(45,74,62,.08)}
+html[data-theme=dark]{--bg:#121815;--card:#1b2420;--text:#e8eee9;--muted:#aab7b0;--border:#34423b;--soft:#24312b;--green:#5f8b77;--green2:#739f8b;--shadow:0 12px 32px rgba(0,0,0,.28)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.card{background:var(--card);border:1px solid var(--border);border-radius:20px;box-shadow:var(--shadow)}.muted{color:var(--muted)}.btn{border:0;border-radius:11px;padding:.65rem .9rem;font-weight:700;cursor:pointer}.btn-green{background:var(--green);color:#fff}.btn-green:hover{background:var(--green2)}.btn-soft{background:var(--soft);color:var(--text)}.btn-danger{background:#fee2e2;color:#991b1b}.input,.select{width:100%;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:.65rem .75rem;outline:none}.input:focus,.select:focus{border-color:var(--green2);box-shadow:0 0 0 3px rgba(95,139,119,.15)}.switch{position:relative;width:52px;height:30px}.switch input{opacity:0;width:0;height:0}.slider{position:absolute;inset:0;background:#94a39b;border-radius:999px;cursor:pointer;transition:.2s}.slider:before{content:"";position:absolute;width:22px;height:22px;left:4px;top:4px;background:white;border-radius:50%;transition:.2s;box-shadow:0 1px 4px rgba(0,0,0,.2)}.switch input:checked+.slider{background:#3d8b63}.switch input:checked+.slider:before{transform:translateX(22px)}.grade-row{border:1px solid var(--border);border-radius:15px;padding:12px;background:var(--card)}.badge{display:inline-flex;align-items:center;border-radius:999px;padding:.22rem .55rem;font-size:.7rem;font-weight:800}.badge-green{background:#dcfce7;color:#166534}.badge-gray{background:var(--soft);color:var(--muted)}.notice{border-radius:12px;padding:.75rem .9rem;font-size:.8rem}.notice-info{background:var(--soft);border:1px solid var(--border)}.notice-ok{background:#dcfce7;color:#166534;border:1px solid #bbf7d0}.notice-error{background:#fee2e2;color:#991b1b;border:1px solid #fecaca}
+</style>
+</head>
+<body>
+<div class="max-w-5xl mx-auto px-4 py-5 sm:px-6 sm:py-8">
+<header class="card p-4 sm:p-5 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+  <div class="flex items-center gap-3"><img src="Not needed/McLeod's English School LOGO.png" class="w-11 h-11 object-contain" alt="School logo"><div><h1 class="text-xl sm:text-2xl font-extrabold">Admin Settings</h1><p class="muted text-xs sm:text-sm">Grades, divisions and meal availability</p></div></div>
+  <div class="flex gap-2 flex-wrap"><a href="canteen.html?view=admin" class="btn btn-soft text-sm">← Dashboard</a><button id="theme-toggle" class="btn btn-soft text-sm" type="button" onclick="toggleTheme()">🌙 Dark Mode</button></div>
+</header>
+
+<div id="auth-card" class="card p-6 max-w-md mx-auto hidden">
+  <h2 class="text-lg font-extrabold mb-1">Admin access</h2><p class="muted text-sm mb-5">Sign in to change school settings.</p>
+  <div class="space-y-3"><input id="login-user" class="input" placeholder="Username"><input id="login-pass" class="input" type="password" placeholder="Password"><input id="login-phrase" class="input" type="password" placeholder="Security phrase"><button class="btn btn-green w-full" onclick="login()">Unlock Settings</button><p id="login-error" class="text-sm text-red-600 hidden"></p></div>
+</div>
+
+<main id="settings-app" class="hidden space-y-5">
+  <div id="status" class="notice notice-info">Loading the latest settings…</div>
+
+  <section class="card p-5 sm:p-6">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div><h2 class="text-lg font-extrabold">🍽️ Meal availability</h2><p class="muted text-sm mt-1">Dinner stays completely hidden from the scanner until you enable it.</p></div>
+      <div class="flex items-center gap-3"><span id="dinner-label" class="font-bold text-sm">Dinner disabled</span><label class="switch"><input id="dinner-toggle" type="checkbox" onchange="setDinner(this.checked)"><span class="slider"></span></label></div>
+    </div>
+    <div class="notice notice-info mt-4">Breakfast rules are still automatic: Grades 1–2 can use Breakfast; Grade 3+ cannot.</div>
+  </section>
+
+  <section class="card p-5 sm:p-6">
+    <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-5"><div><h2 class="text-lg font-extrabold">🎓 Grade manager</h2><p class="muted text-sm mt-1">Add, rename, reorder and decide whether each grade uses divisions.</p></div></div>
+    <div class="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-3 mb-5">
+      <input id="new-grade" class="input" placeholder="New grade name, e.g. Grade 11">
+      <select id="new-placement" class="select"></select>
+      <select id="new-division-mode" class="select"><option value="divisions">Uses divisions</option><option value="none">No divisions</option></select>
+      <button class="btn btn-green" onclick="addGrade()">＋ Add Grade</button>
+    </div>
+    <div id="grade-list" class="space-y-2"></div>
+  </section>
+
+  <section class="card p-5 sm:p-6">
+    <div class="flex items-center justify-between gap-3 mb-4"><div><h2 class="text-lg font-extrabold">👥 Division list</h2><p class="muted text-sm mt-1">These are available to grades that use divisions.</p></div></div>
+    <div class="flex gap-2 mb-4"><input id="new-division" class="input" placeholder="e.g. Oak"><button class="btn btn-green whitespace-nowrap" onclick="addDivision()">＋ Add</button></div>
+    <div id="division-list" class="flex flex-wrap gap-2"></div>
+  </section>
+</main>
+</div>
+
+<script>
+const firebaseConfig={apiKey:"AIzaSyD9qr8eJ1jzU-mC49-UPuYf8fO1LTV6QVY",authDomain:"canteen-28c1e.firebaseapp.com",databaseURL:"https://canteen-28c1e-default-rtdb.firebaseio.com",projectId:"canteen-28c1e",storageBucket:"canteen-28c1e.firebasestorage.app",messagingSenderId:"849945519532",appId:"1:849945519532:web:fd012de87be618cf324609",measurementId:"G-FYR72EMJRP"};
+const ADMIN_USER='admin',ADMIN_PASS='canteen123',ADMIN_PHRASE='mcleods-secure-2026';
+let db=null, grades=[], divisions=[], students=[], gradeSettings={}, dinnerEnabled=false, loaded=false;
+const clone=v=>JSON.parse(JSON.stringify(v));
+function setStatus(msg,type='info'){const el=document.getElementById('status');el.className='notice '+(type==='ok'?'notice-ok':type==='error'?'notice-error':'notice-info');el.textContent=msg;}
+function toggleTheme(){const dark=document.documentElement.getAttribute('data-theme')==='dark';const next=dark?'light':'dark';document.documentElement.setAttribute('data-theme',next);localStorage.setItem('mccafe-theme',next);document.getElementById('theme-toggle').textContent=next==='dark'?'☀️ Light Mode':'🌙 Dark Mode';}
+function refreshThemeButton(){document.getElementById('theme-toggle').textContent=document.documentElement.getAttribute('data-theme')==='dark'?'☀️ Light Mode':'🌙 Dark Mode';}
+function ensureSettings(){if(!Array.isArray(grades))grades=[];if(!Array.isArray(divisions))divisions=[];if(!Array.isArray(students))students=[];if(!gradeSettings||typeof gradeSettings!=='object'||Array.isArray(gradeSettings))gradeSettings={};grades.forEach(g=>{if(typeof gradeSettings[g]!=='boolean')gradeSettings[g]=true});Object.keys(gradeSettings).forEach(g=>{if(!grades.includes(g))delete gradeSettings[g]});}
+function usesDiv(g){return gradeSettings[g]!==false;}
+function render(){ensureSettings();document.getElementById('dinner-toggle').checked=dinnerEnabled;document.getElementById('dinner-label').textContent=dinnerEnabled?'Dinner enabled':'Dinner disabled';
+ const p=document.getElementById('new-placement');p.innerHTML='<option value="end">Make this the biggest grade</option><option value="start">Make this the smallest grade</option>'+grades.map((g,i)=>`<option value="after:${i}">After ${escapeHtml(g)}</option>`).join('');
+ document.getElementById('grade-list').innerHTML=grades.map((g,i)=>`<div class="grade-row"><div class="grid grid-cols-1 lg:grid-cols-[1fr_auto_auto_auto] gap-2 items-center"><input id="g-name-${i}" class="input" value="${escapeAttr(g)}"><select id="g-mode-${i}" class="select"><option value="divisions" ${usesDiv(g)?'selected':''}>Uses divisions</option><option value="none" ${usesDiv(g)?'':'selected'}>No divisions</option></select><button class="btn btn-green" onclick="saveGrade(${i})">Save</button><button class="btn btn-danger" onclick="removeGrade(${i})">Delete</button></div><div class="mt-2"><span class="badge ${usesDiv(g)?'badge-green':'badge-gray'}">${usesDiv(g)?'DIVISIONS ENABLED':'NO DIVISIONS'}</span><span class="muted text-xs ml-2">${students.filter(s=>s.grade===g).length} student(s)</span></div></div>`).join('')||'<div class="muted text-sm">No grades yet.</div>';
+ document.getElementById('division-list').innerHTML=divisions.map((d,i)=>`<span class="badge badge-gray">${escapeHtml(d)} <button class="ml-1" onclick="removeDivision(${i})" title="Remove">×</button></span>`).join('')||'<span class="muted text-sm">No divisions.</span>';}
+function escapeHtml(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}function escapeAttr(s){return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+async function transact(mutator){if(!db){mutator({});return;}setStatus('Saving…');try{await db.ref('mcleods-canteen').transaction(current=>{current=current||{};const next=mutator(current)||current;next.updatedAt=new Date().toISOString();return next});setStatus('Saved successfully.','ok');}catch(e){console.error(e);setStatus('Could not save. Please check the connection and try again.','error');throw e;}}
+async function setDinner(v){dinnerEnabled=!!v;try{await transact(c=>{c.dinnerEnabled=dinnerEnabled;return c});}catch{document.getElementById('dinner-toggle').checked=!dinnerEnabled;dinnerEnabled=!dinnerEnabled;}render();}
+async function addGrade(){const name=document.getElementById('new-grade').value.trim();if(!name)return setStatus('Enter a grade name.','error');if(grades.some(g=>g.toLowerCase()===name.toLowerCase()))return setStatus('That grade already exists.','error');const placement=document.getElementById('new-placement').value;const mode=document.getElementById('new-division-mode').value;await transact(c=>{let gs=Array.isArray(c.grades)?c.grades:[];let idx=gs.length;if(placement==='start')idx=0;else if(placement.startsWith('after:'))idx=Math.min(gs.length,Number(placement.split(':')[1])+1);gs.splice(idx,0,name);c.grades=gs;const settings=c.gradeSettings&&typeof c.gradeSettings==='object'?c.gradeSettings:{};settings[name]=mode==='divisions';c.gradeSettings=settings;return c});await load();document.getElementById('new-grade').value='';}
+async function saveGrade(i){const old=grades[i],name=document.getElementById('g-name-'+i).value.trim(),mode=document.getElementById('g-mode-'+i).value;if(!name)return setStatus('Grade name cannot be empty.','error');if(grades.some((g,x)=>x!==i&&g.toLowerCase()===name.toLowerCase()))return setStatus('That grade already exists.','error');await transact(c=>{let gs=Array.isArray(c.grades)?c.grades:[];gs[i]=name;c.grades=gs;const settings=c.gradeSettings&&typeof c.gradeSettings==='object'?c.gradeSettings:{};delete settings[old];settings[name]=mode==='divisions';c.gradeSettings=settings;const ss=Array.isArray(c.students)?c.students:[];ss.forEach(s=>{if(s&&s.grade===old){s.grade=name;if(mode==='none')s.division=''}});c.students=ss;return c});await load();}
+async function removeGrade(i){const g=grades[i],count=students.filter(s=>s.grade===g).length;if(count&&!confirm(`${g} has ${count} student(s). Delete the grade anyway? Their student records will stay, but the grade assignment will be cleared.`))return;await transact(c=>{let gs=Array.isArray(c.grades)?c.grades:[];gs.splice(i,1);c.grades=gs;const settings=c.gradeSettings&&typeof c.gradeSettings==='object'?c.gradeSettings:{};delete settings[g];c.gradeSettings=settings;const ss=Array.isArray(c.students)?c.students:[];ss.forEach(s=>{if(s&&s.grade===g){s.grade='';s.division=''}});c.students=ss;return c});await load();}
+async function addDivision(){const d=document.getElementById('new-division').value.trim();if(!d)return;if(divisions.some(x=>x.toLowerCase()===d.toLowerCase()))return setStatus('That division already exists.','error');await transact(c=>{c.divisions=Array.isArray(c.divisions)?c.divisions.concat(d):[d];return c});await load();document.getElementById('new-division').value='';}
+async function removeDivision(i){const d=divisions[i];if(!confirm(`Remove division ${d}? Existing students will keep their current value.`))return;await transact(c=>{let ds=Array.isArray(c.divisions)?c.divisions:[];ds.splice(i,1);c.divisions=ds;return c});await load();}
+async function load(){setStatus('Loading the latest settings…');try{if(!db){firebase.initializeApp(firebaseConfig);db=firebase.database()}const snap=await db.ref('mcleods-canteen').once('value');const c=snap.val()||{};grades=Array.isArray(c.grades)?c.grades:[];divisions=Array.isArray(c.divisions)?c.divisions:[];students=Array.isArray(c.students)?c.students:[];gradeSettings=c.gradeSettings&&typeof c.gradeSettings==='object'?c.gradeSettings:{};dinnerEnabled=c.dinnerEnabled===true;ensureSettings();localStorage.setItem('ecocanteen_grades',JSON.stringify(grades));localStorage.setItem('ecocanteen_divisions',JSON.stringify(divisions));localStorage.setItem('ecocanteen_grade_settings',JSON.stringify(gradeSettings));localStorage.setItem('ecocanteen_dinner_enabled',String(dinnerEnabled));render();loaded=true;setStatus('Settings are synced with the canteen database.','ok')}catch(e){console.error(e);setStatus('Could not load Firebase settings. Check your internet connection.','error');}}
+function login(){const u=document.getElementById('login-user').value,p=document.getElementById('login-pass').value,ph=document.getElementById('login-phrase').value;if(u!==ADMIN_USER||p!==ADMIN_PASS||ph!==ADMIN_PHRASE){document.getElementById('login-error').textContent='Invalid admin credentials or security phrase.';document.getElementById('login-error').classList.remove('hidden');return}sessionStorage.setItem('ecocanteen_admin_session','true');sessionStorage.setItem('ecocanteen_admin_name','Admin');showApp();}
+function showApp(){document.getElementById('auth-card').classList.add('hidden');document.getElementById('settings-app').classList.remove('hidden');load();}
+refreshThemeButton();
+if(sessionStorage.getItem('ecocanteen_admin_session')==='true')showApp();else document.getElementById('auth-card').classList.remove('hidden');
+</script>
+</body>
+</html>

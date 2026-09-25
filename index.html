@@ -271,7 +271,7 @@
                         <option value="Mid-Morning">Mid-Morning</option>
                         <option value="Lunch">Lunch</option>
                         <option value="Mid-Evening">Mid-Evening</option>
-                        <option value="Dinner">Dinner</option>
+                        
                     </select>
                     <p class="text-xs text-gray-500 mt-1">Breakfast is only available for Grade 1 and Grade 2 students.</p>
                 </div>
@@ -343,26 +343,13 @@
                 </div>
             </div>
 
-            <!-- Configuration: Add Grades & Divisions -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm">
-                    <h3 class="text-sm font-bold text-matte-green mb-2">Add New Grade Level</h3>
-                    <div class="grade-form-grid">
-                        <input type="text" id="new-grade-input" placeholder="e.g. Grade 11" class="border border-gray-300 p-2 rounded-lg text-sm outline-none">
-                        <select id="new-grade-placement" class="border border-gray-300 p-2 rounded-lg text-sm bg-white outline-none" aria-label="Choose where the new grade goes">
-                            <option value="smallest">Make this the smallest grade</option>
-                        </select>
-                        <button type="button" onclick="addGrade()" class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Add Grade</button>
-                    </div>
-                    <p class="text-[11px] text-gray-500 mt-2">Pick the spot in the school order. For example, choose “Between UKG and Grade 1” to put a new grade in between them. You can also make it the smallest or biggest grade.</p>
+            <!-- Settings moved to a dedicated admin webpage -->
+            <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h3 class="text-sm font-bold text-matte-green">School Settings</h3>
+                    <p class="text-[11px] text-gray-500 mt-1">Manage grades, divisions and Dinner availability from the dedicated settings page.</p>
                 </div>
-                <div class="bg-white border border-[#d8e2dc] p-5 rounded-2xl shadow-sm">
-                    <h3 class="text-sm font-bold text-matte-green mb-2">Add New Division Group</h3>
-                    <div class="flex gap-2">
-                        <input type="text" id="new-div-input" placeholder="e.g. Oak" class="border border-gray-300 p-2 rounded-lg text-sm flex-grow outline-none">
-                        <button onclick="addDivision()" class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Add Division</button>
-                    </div>
-                </div>
+                <a href="admin-settings.html" class="btn-matte px-4 py-2 rounded-lg text-xs font-bold text-center whitespace-nowrap">⚙️ Open School Settings</a>
             </div>
 
             <!-- Registration Forms -->
@@ -372,7 +359,7 @@
                     <h3 class="text-md font-bold text-matte-green mb-3">Register New Student</h3>
                     <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
                         <input type="text" id="reg-name" placeholder="Full Name" class="border border-gray-300 p-2.5 rounded-lg text-sm outline-none">
-                        <select id="reg-grade" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none font-medium"></select>
+                        <select id="reg-grade" onchange="updateStudentDivisionField()" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none font-medium"></select>
                         <select id="reg-division" class="border border-gray-300 p-2.5 rounded-lg text-sm bg-white outline-none font-medium"></select>
                         <button onclick="registerStudent()" class="btn-matte font-semibold p-2.5 rounded-lg text-sm transition">Add Student</button>
                     </div>
@@ -466,6 +453,8 @@
         // Data Store Initialization
         let grades = JSON.parse(localStorage.getItem('ecocanteen_grades')) || ["LKG", "UKG", "Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6", "Grade 7", "Grade 8", "Grade 9", "Grade 10"];
         let divisions = JSON.parse(localStorage.getItem('ecocanteen_divisions')) || ["Hazel", "Maple", "Willow"];
+        let gradeSettings = JSON.parse(localStorage.getItem('ecocanteen_grade_settings') || '{}');
+        let dinnerEnabled = localStorage.getItem('ecocanteen_dinner_enabled') === 'true';
         let students = JSON.parse(localStorage.getItem('ecocanteen_students')) || [];
         let teachers = JSON.parse(localStorage.getItem('ecocanteen_teachers')) || [];
         let payments = JSON.parse(localStorage.getItem('ecocanteen_payments')) || [];
@@ -610,6 +599,8 @@
             const localState = {
                 grades: cloneState(grades),
                 divisions: cloneState(divisions),
+                gradeSettings: cloneState(gradeSettings),
+                dinnerEnabled,
                 students: cloneState(students),
                 teachers: cloneState(teachers),
                 payments: cloneState(payments),
@@ -629,6 +620,10 @@
                         ? cloneState(localState.grades) : (Array.isArray(cloud.grades) ? cloud.grades : localState.grades),
                     divisions: stableStateSignature(previous.divisions) !== stableStateSignature(localState.divisions)
                         ? cloneState(localState.divisions) : (Array.isArray(cloud.divisions) ? cloud.divisions : localState.divisions),
+                    gradeSettings: stableStateSignature(previous.gradeSettings) !== stableStateSignature(localState.gradeSettings)
+                        ? cloneState(localState.gradeSettings) : (cloud.gradeSettings && typeof cloud.gradeSettings === 'object' ? cloud.gradeSettings : localState.gradeSettings),
+                    dinnerEnabled: previous.dinnerEnabled !== localState.dinnerEnabled
+                        ? !!localState.dinnerEnabled : (cloud.dinnerEnabled === true),
                     students: mergeArrayById(cloud.students, previous.students, localState.students),
                     teachers: mergeArrayById(cloud.teachers, previous.teachers, localState.teachers),
                     payments: mergeArrayById(cloud.payments, previous.payments, localState.payments),
@@ -652,6 +647,8 @@
                 // stale copy after another device changed something during our write.
                 grades = normalizeGrades(Array.isArray(data.grades) ? data.grades : grades);
                 divisions = Array.isArray(data.divisions) ? data.divisions : divisions;
+                gradeSettings = data.gradeSettings && typeof data.gradeSettings === 'object' ? data.gradeSettings : gradeSettings;
+                dinnerEnabled = data.dinnerEnabled === true;
                 students = Array.isArray(data.students) ? data.students : students;
                 teachers = Array.isArray(data.teachers) ? data.teachers : teachers;
                 payments = Array.isArray(data.payments) ? data.payments : payments;
@@ -662,6 +659,8 @@
                 scanLogs = Array.isArray(data.scanLogs) ? data.scanLogs : scanLogs;
                 localStorage.setItem('ecocanteen_grades', JSON.stringify(grades));
                 localStorage.setItem('ecocanteen_divisions', JSON.stringify(divisions));
+                localStorage.setItem('ecocanteen_grade_settings', JSON.stringify(gradeSettings));
+                localStorage.setItem('ecocanteen_dinner_enabled', String(dinnerEnabled));
                 localStorage.setItem('ecocanteen_students', JSON.stringify(students));
                 localStorage.setItem('ecocanteen_teachers', JSON.stringify(teachers));
                 localStorage.setItem('ecocanteen_payments', JSON.stringify(payments));
@@ -704,6 +703,8 @@
                     if (cloudData) {
                         grades = normalizeGrades(Array.isArray(cloudData.grades) ? cloudData.grades : grades);
                         divisions = Array.isArray(cloudData.divisions) ? cloudData.divisions : divisions;
+                        gradeSettings = cloudData.gradeSettings && typeof cloudData.gradeSettings === 'object' ? cloudData.gradeSettings : gradeSettings;
+                        dinnerEnabled = cloudData.dinnerEnabled === true;
                         students = Array.isArray(cloudData.students) ? cloudData.students : students;
                         teachers = Array.isArray(cloudData.teachers) ? cloudData.teachers : teachers;
                         payments = Array.isArray(cloudData.payments) ? cloudData.payments : payments;
@@ -732,6 +733,8 @@
                         lastCloudStateSignature = incomingSignature;
                         grades = normalizeGrades(Array.isArray(latestData.grades) ? latestData.grades : grades);
                         divisions = Array.isArray(latestData.divisions) ? latestData.divisions : divisions;
+                        gradeSettings = latestData.gradeSettings && typeof latestData.gradeSettings === 'object' ? latestData.gradeSettings : gradeSettings;
+                        dinnerEnabled = latestData.dinnerEnabled === true;
                         students = Array.isArray(latestData.students) ? latestData.students : students;
                         teachers = Array.isArray(latestData.teachers) ? latestData.teachers : teachers;
                         payments = Array.isArray(latestData.payments) ? latestData.payments : payments;
@@ -1086,6 +1089,7 @@
         }
 
         grades = normalizeGrades(grades);
+        ensureGradeSettings();
 
         function rebuildGradePlacementOptions() {
             const select = document.getElementById('new-grade-placement');
@@ -1109,10 +1113,96 @@
             else select.value = 'biggest';
         }
 
+        function gradeUsesDivisions(grade) {
+            const key = String(grade || '').trim();
+            return gradeSettings[key] !== false;
+        }
+
+        function ensureGradeSettings() {
+            if (!gradeSettings || typeof gradeSettings !== 'object' || Array.isArray(gradeSettings)) gradeSettings = {};
+            grades.forEach(grade => {
+                if (typeof gradeSettings[grade] !== 'boolean') gradeSettings[grade] = true;
+            });
+            Object.keys(gradeSettings).forEach(key => {
+                if (!grades.includes(key)) delete gradeSettings[key];
+            });
+        }
+
+        function renderGradeSettings() {
+            ensureGradeSettings();
+            const host = document.getElementById('grade-settings-list');
+            if (!host) return;
+            host.innerHTML = grades.map((grade, index) => `
+                <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center border border-gray-200 rounded-lg p-2">
+                    <input id="grade-name-${index}" value="${String(grade).replace(/"/g, '&quot;')}"
+                        class="flex-1 border border-gray-300 p-2 rounded-lg text-xs outline-none">
+                    <label class="flex items-center gap-2 text-xs font-medium whitespace-nowrap">
+                        <input id="grade-div-${index}" type="checkbox" ${gradeUsesDivisions(grade) ? 'checked' : ''}>
+                        Uses divisions
+                    </label>
+                    <button type="button" onclick="saveGradeSetting(${index})"
+                        class="btn-matte px-3 py-2 rounded-lg text-xs font-semibold">Save</button>
+                </div>
+            `).join('');
+        }
+
+        function saveGradeSetting(index) {
+            if (isFirebaseConfigured() && !cloudDataReady) {
+                alert('Still loading the latest data from the cloud - please wait a moment and try again.');
+                return;
+            }
+            const oldName = grades[index];
+            const nameEl = document.getElementById(`grade-name-${index}`);
+            const divEl = document.getElementById(`grade-div-${index}`);
+            if (!nameEl || !divEl) return;
+            const newName = nameEl.value.trim();
+            if (!newName) { alert('Enter a grade name.'); return; }
+
+            const duplicate = grades.some((g, i) => i !== index && g.toLowerCase() === newName.toLowerCase());
+            if (duplicate) { alert(`${newName} already exists.`); return; }
+
+            const usesDivisions = divEl.checked;
+            grades[index] = newName;
+
+            const oldSetting = gradeSettings[oldName];
+            delete gradeSettings[oldName];
+            gradeSettings[newName] = usesDivisions;
+
+            students.forEach(student => {
+                if (student.grade === oldName) {
+                    student.grade = newName;
+                    if (!usesDivisions) student.division = '';
+                }
+            });
+
+            ensureGradeSettings();
+            saveAppData();
+            refreshUI();
+        }
+
+        function toggleDinnerAvailability(enabled) {
+            dinnerEnabled = !!enabled;
+            localStorage.setItem('ecocanteen_dinner_enabled', String(dinnerEnabled));
+            updateMealCategoryOptions();
+            saveAppData();
+        }
+
+        function updateMealCategoryOptions() {
+            const select = document.getElementById('active-meal-category');
+            if (!select) return;
+            const current = select.value;
+            const categories = ['Breakfast', 'Mid-Morning', 'Lunch', 'Mid-Evening'];
+            if (dinnerEnabled) categories.push('Dinner');
+            select.innerHTML = categories.map(category => `<option value="${category}">${category}</option>`).join('');
+            if (categories.includes(current)) select.value = current;
+            else select.value = 'Lunch';
+        }
+
         function addGrade() {
             if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const val = document.getElementById('new-grade-input').value.trim();
             const placement = document.getElementById('new-grade-placement').value;
+            const usesDivisions = document.getElementById('new-grade-uses-divisions').checked;
             if (!val) { alert('Enter a grade name.'); return; }
             if (grades.some(g => String(g).trim().toLowerCase() === val.toLowerCase())) {
                 alert(`${val} already exists.`);
@@ -1120,18 +1210,19 @@
             }
 
             let insertIndex = grades.length;
-            if (placement === 'smallest') {
-                insertIndex = 0;
-            } else if (placement === 'biggest') {
-                insertIndex = grades.length;
-            } else if (placement.startsWith('between:')) {
+            if (placement === 'smallest') insertIndex = 0;
+            else if (placement === 'biggest') insertIndex = grades.length;
+            else if (placement.startsWith('between:')) {
                 const leftIndex = Number(placement.split(':')[1]);
                 insertIndex = Number.isInteger(leftIndex) ? leftIndex + 1 : grades.length;
             }
 
             grades.splice(insertIndex, 0, val);
+            gradeSettings[val] = usesDivisions;
             document.getElementById('new-grade-input').value = '';
             document.getElementById('new-grade-placement').value = 'biggest';
+            document.getElementById('new-grade-uses-divisions').checked = true;
+            ensureGradeSettings();
             saveAppData();
             refreshUI();
         }
@@ -1150,8 +1241,10 @@
             if (isFirebaseConfigured() && !cloudDataReady) { alert('Still loading the latest data from the cloud - please wait a moment and try again.'); return; }
             const name = document.getElementById('reg-name').value.trim();
             const grade = document.getElementById('reg-grade').value;
-            const division = document.getElementById('reg-division').value;
+            const usesDivisions = gradeUsesDivisions(grade);
+            const division = usesDivisions ? document.getElementById('reg-division').value : '';
             if (!name) { alert('Enter student name.'); return; }
+            if (usesDivisions && !division) { alert('Select a division for this grade.'); return; }
             
             const uniqueId = 'MC-' + Math.floor(100000 + Math.random() * 900000);
             students.push({ id: uniqueId, name, grade, division, enrolled: true });
@@ -1529,6 +1622,17 @@
             }, 0);
         }
 
+        function updateStudentDivisionField() {
+            const gradeSelect = document.getElementById('reg-grade');
+            const divisionSelect = document.getElementById('reg-division');
+            if (!gradeSelect || !divisionSelect) return;
+            const enabled = gradeUsesDivisions(gradeSelect.value);
+            divisionSelect.classList.toggle('hidden', !enabled);
+            divisionSelect.disabled = !enabled;
+            divisionSelect.required = enabled;
+            if (!enabled) divisionSelect.value = '';
+        }
+
         function refreshUI() {
             // Show a banner and disable data-entry while we still don't know
             // what's actually saved in the cloud (see cloudDataReady).
@@ -1542,9 +1646,15 @@
             document.querySelectorAll('[onclick="registerStudent()"], [onclick="registerTeacher()"], [onclick="addGrade()"], [onclick="addDivision()"]').forEach(btn => { btn.disabled = stillLoading; btn.classList.toggle('opacity-50', stillLoading); btn.classList.toggle('cursor-not-allowed', stillLoading); });
 
             // Populate Grade/Division Dropdowns
+            ensureGradeSettings();
             document.getElementById('reg-grade').innerHTML = grades.map(g => `<option value="${g}">${g}</option>`).join('');
             document.getElementById('reg-division').innerHTML = divisions.map(d => `<option value="${d}">${d}</option>`).join('');
+            updateStudentDivisionField();
             rebuildGradePlacementOptions();
+            renderGradeSettings();
+            const dinnerToggle = document.getElementById('dinner-toggle');
+            if (dinnerToggle) dinnerToggle.checked = dinnerEnabled;
+            updateMealCategoryOptions();
 
             // Rebuild the QR-containing directories only when the actual people data
             // or badge selection changed. Routine Firebase updates (payments, scan logs,
